@@ -13,6 +13,15 @@
 #
 # บน EC2: สร้างโฟลเดอร์ deploy, ใส่ .env / Credentials.json ไว้ครั้งแรกเอง
 #         user ต้องมี sudo แบบไม่ต้องใส่รหัสสำหรับ systemctl restart <service>
+#
+# เซิร์ฟเวอร์ (สรุป — ไม่ deploy จาก artifact):
+#   - .env ครบตาม .env.example (APP_URL/NEXTAUTH_URL เป็น https base domain, secrets ยาว ≥32)
+#   - NODE_ENV=production ใน systemd Environment=
+#   - Reverse proxy: ส่ง Host, X-Forwarded-Proto=https, X-Forwarded-For (ถ้ามี TLS ที่ proxy)
+#   - Cloudflare: Bypass cache สำหรับ /api/* และหน้า auth ถ้ามีกฎ cache กว้าง
+#
+# Build บน Actions ไม่โหลด .env จาก repo — ถ้า `next build` ต้องการตัวแปรเฉพาะ ให้เพิ่ม GitHub Secrets
+# แล้วส่งเป็น env ในขั้น Build (ปัจจุบันโปรเจกต์นี้ build ได้โดยไม่ต้องมี secret ฝั่ง CI)
 
 name: Deploy to EC2 (manual)
 
@@ -43,6 +52,8 @@ concurrency:
 env:
   NODE_VERSION: "24"
   NEXT_TELEMETRY_DISABLED: "1"
+  # GitHub: ให้ actions/checkout, setup-node, upload-artifact รันบน Node 24 (ลด deprecation warning)
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build-and-deploy:
