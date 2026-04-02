@@ -4,8 +4,8 @@ import { ADMIN_LINE_CONNECT_STATE_COOKIE, ADMIN_LINE_CONNECT_TARGET_COOKIE } fro
 import { verifyAdminLineConnectState } from "@/lib/auth/admin-line-connect-state";
 import { clearNextAuthCookies } from "@/lib/auth/nextauth-cookie-utils";
 import CmsAdmin from "@/models/CmsAdmin";
+import { verifySignedLineOAuthState } from "@/lib/auth/line-oauth-state";
 import {
-  getLineOauthCookieOptions,
   LINE_OAUTH_CALLBACK_URL_COOKIE,
   LINE_OAUTH_STATE_COOKIE,
   LINE_OAUTH_TARGET_ADMIN_CONNECT,
@@ -37,6 +37,7 @@ type LineProfile = {
 
 function redirectWithCleanup(path: string, request: NextRequest) {
   const response = NextResponse.redirect(new URL(path, getAppBaseUrl() || request.url));
+  response.headers.set("Cache-Control", "private, no-store, max-age=0");
   response.cookies.delete(LINE_OAUTH_STATE_COOKIE);
   response.cookies.delete(LINE_OAUTH_TARGET_COOKIE);
   response.cookies.delete(LINE_OAUTH_CALLBACK_URL_COOKIE);
@@ -160,7 +161,10 @@ export async function GET(request: NextRequest) {
     }
 
     const cookieState = request.cookies.get(LINE_OAUTH_STATE_COOKIE)?.value ?? "";
-    if (!cookieState || cookieState !== state) {
+    const stateOk =
+      verifySignedLineOAuthState(state) ||
+      (!!cookieState && cookieState === state);
+    if (!stateOk) {
       return redirectWithCleanup("/register?error=line_state_mismatch", request);
     }
 

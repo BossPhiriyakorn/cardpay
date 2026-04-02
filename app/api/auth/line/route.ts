@@ -1,12 +1,10 @@
-import crypto from "node:crypto";
-
 import { NextRequest, NextResponse } from "next/server";
 
 import { ADMIN_LINE_CONNECT_STATE_COOKIE, ADMIN_LINE_CONNECT_TARGET_COOKIE } from "@/lib/auth/admin-line-connect-cookies";
+import { createSignedLineOAuthState } from "@/lib/auth/line-oauth-state";
 import {
   getLineOauthCookieOptions,
   LINE_OAUTH_CALLBACK_URL_COOKIE,
-  LINE_OAUTH_STATE_COOKIE,
   LINE_OAUTH_TARGET_ADMIN_CONNECT,
   LINE_OAUTH_TARGET_COOKIE,
   LINE_OAUTH_TARGET_USER_LOGIN,
@@ -41,7 +39,7 @@ export async function GET(request: NextRequest) {
   const adminTarget = request.cookies.get(ADMIN_LINE_CONNECT_TARGET_COOKIE)?.value;
   const adminState = request.cookies.get(ADMIN_LINE_CONNECT_STATE_COOKIE)?.value;
   const isAdminConnect = adminTarget === LINE_OAUTH_TARGET_ADMIN_CONNECT && !!adminState;
-  const state = isAdminConnect ? adminState : crypto.randomUUID();
+  const state = isAdminConnect ? adminState : createSignedLineOAuthState();
   const callbackUrl = sanitizeCallbackUrl(
     request.nextUrl.searchParams.get("callbackUrl"),
     request
@@ -55,9 +53,7 @@ export async function GET(request: NextRequest) {
   authorizeUrl.searchParams.set("scope", "profile openid");
 
   const response = NextResponse.redirect(authorizeUrl);
-  if (!isAdminConnect) {
-    response.cookies.set(LINE_OAUTH_STATE_COOKIE, state, getLineOauthCookieOptions());
-  }
+  response.headers.set("Cache-Control", "private, no-store, max-age=0");
   response.cookies.set(
     LINE_OAUTH_TARGET_COOKIE,
     isAdminConnect ? LINE_OAUTH_TARGET_ADMIN_CONNECT : LINE_OAUTH_TARGET_USER_LOGIN,
