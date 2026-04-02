@@ -53,7 +53,7 @@ function userAuthCookieSecureAndSameSite() {
   const secure = process.env.NODE_ENV === "production";
   return {
     secure,
-    sameSite: (secure ? "none" : "lax") as const,
+    sameSite: secure ? ("none" as const) : ("lax" as const),
   };
 }
 
