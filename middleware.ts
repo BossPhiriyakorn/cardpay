@@ -3,7 +3,6 @@ import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
 import { ADMIN_TOKEN_COOKIE, USER_TOKEN_COOKIE } from "@/lib/auth/token-constants";
-import { verifyUserAccessToken } from "@/lib/auth/user-jwt";
 
 function getPublicBaseUrl(request: NextRequest): string {
   return (
@@ -68,23 +67,13 @@ export async function middleware(request: NextRequest) {
   }
 
   const userToken = request.cookies.get(USER_TOKEN_COOKIE)?.value;
-  let token: Awaited<ReturnType<typeof verifyUserAccessToken>> | null = null;
-  if (userToken) {
-    try {
-      token = await verifyUserAccessToken(userToken);
-    } catch (e) {
-      // Edge middleware must see USER_JWT_SECRET at build time in many deployments;
-      // if the API signed the cookie but verify fails here, users loop on LINE login with little server logging.
-      console.error(
-        "[middleware] flexshare_user_token verify failed:",
-        e instanceof Error ? e.message : e
-      );
-      token = null;
-    }
-  }
+
+  // Do not verify USER_JWT in Edge: the secret is often missing at `next build` while present at
+  // `next start`, which makes verification fail forever and loops OAuth. /api/auth/me runs on Node
+  // with the real env and validates the cookie instead.
 
   if (isRegister) {
-    if (!token) {
+    if (!userToken) {
       const baseUrl = getPublicBaseUrl(request);
       const lineLogin = new URL("/api/auth/line", baseUrl);
       lineLogin.searchParams.set(
@@ -118,7 +107,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (needsGate) {
-    if (!token) {
+    if (!userToken) {
       const baseUrl = getPublicBaseUrl(request);
       const lineLogin = new URL("/api/auth/line", baseUrl);
       lineLogin.searchParams.set("callbackUrl", new URL(pathname, baseUrl).toString());
@@ -154,6 +143,7 @@ export const config = {
     "/cms/:path*",
     "/register",
     "/register/:path*",
+    "/user",
     "/user/:path*",
     "/profile/:path*",
     "/profile",

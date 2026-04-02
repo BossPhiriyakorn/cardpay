@@ -49,21 +49,31 @@ export async function verifyUserAccessToken(token: string) {
   return payload;
 }
 
+function userAuthCookieSecureAndSameSite() {
+  const secure = process.env.NODE_ENV === "production";
+  return {
+    secure,
+    sameSite: (secure ? "none" : "lax") as const,
+  };
+}
+
 export function getUserCookieOptions(maxAgeSec?: number) {
+  const { secure, sameSite } = userAuthCookieSecureAndSameSite();
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax" as const,
+    secure,
+    sameSite,
     path: "/",
     maxAge: maxAgeSec ?? 3 * 24 * 60 * 60,
   };
 }
 
 export function getUserLineAccessTokenCookieOptions(maxAgeSec?: number) {
+  const { secure, sameSite } = userAuthCookieSecureAndSameSite();
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax" as const,
+    secure,
+    sameSite,
     path: "/",
     maxAge: maxAgeSec ?? 3 * 24 * 60 * 60,
   };
