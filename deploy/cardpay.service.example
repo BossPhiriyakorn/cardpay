@@ -1,0 +1,21 @@
+# คัดลอกไป /etc/systemd/system/cardpay.service แล้ว sudo systemctl daemon-reload && sudo systemctl enable --now cardpay
+# แก้ User / WorkingDirectory / ExecStart ให้ตรงกับเครื่อง EC2
+#
+# หลัง deploy จาก GitHub Actions โฟลเดอร์ WorkingDirectory จะมี server.js จาก Next standalone
+
+[Unit]
+Description=CardPay Next.js (standalone)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/cardpay
+Environment=NODE_ENV=production
+EnvironmentFile=-/opt/cardpay/.env
+ExecStart=/usr/bin/node /opt/cardpay/server.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

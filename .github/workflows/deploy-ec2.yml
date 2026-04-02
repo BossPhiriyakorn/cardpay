@@ -1,0 +1,140 @@
+# Manual deploy เท่านั้น — ไม่รันอัตโนมัติเมื่อ push
+# Build + npm บน GitHub Actions แล้วส่ง artifact ไป EC2 (ลด RAM บนเซิร์ฟเวอร์)
+#
+# ต้องตั้ง GitHub Secrets:
+#   EC2_HOST          — hostname หรือ IP
+#   EC2_USER          — เช่น ubuntu, ec2-user (ห้ามใช้ชื่อ USER เพราะชนกับ env ของ shell)
+#   EC2_SSH_KEY       — private key แบบ PEM ทั้งก้อน
+# ทางเลือก:
+#   EC2_SSH_PORT      — default 22
+#
+# บน EC2 ต้องมี: rsync, tar, systemd
+# ARM runners (ubuntu-24.04-arm) ใช้ได้กับ public repo ฟรี — private อาจต้องใช้แผน GitHub ที่รองรับ
+#
+# บน EC2: สร้างโฟลเดอร์ deploy, ใส่ .env / Credentials.json ไว้ครั้งแรกเอง
+#         user ต้องมี sudo แบบไม่ต้องใส่รหัสสำหรับ systemctl restart <service>
+
+name: Deploy to EC2 (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: "สถาปัตยกรรม build ให้ตรงกับ EC2 (x86 = Graviton นอก / ARM = Graviton)"
+        type: choice
+        required: true
+        default: amd64
+        options:
+          - amd64
+          - arm64
+      deploy_path:
+        description: "พาธโฟลเดอร์แอปบน EC2 (ไม่มี / ท้าย)"
+        required: true
+        default: /opt/cardpay
+      systemd_service:
+        description: "ชื่อ systemd service ที่จะ restart หลัง deploy"
+        required: true
+        default: cardpay
+
+concurrency:
+  group: deploy-ec2-${{ github.repository }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "24"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  build-and-deploy:
+    # amd64 = ubuntu-latest ; arm64 = runner Linux ARM ของ GitHub (public repo)
+    runs-on: ${{ inputs.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Next.js (standalone)
+        run: npm run build
+
+      - name: Assemble standalone bundle
+        run: |
+          set -e
+          STANDALONE=".next/standalone"
+          test -d "$STANDALONE" || { echo "missing $STANDALONE — ตรวจสอบ next.config output: standalone"; exit 1; }
+          mkdir -p "$STANDALONE/.next"
+          if [ -d .next/static ]; then
+            cp -r .next/static "$STANDALONE/.next/static"
+          fi
+          if [ -d public ]; then
+            cp -r public "$STANDALONE/public"
+          fi
+
+      - name: Create release archive
+        run: |
+          tar -czf cardpay-release.tar.gz -C .next/standalone .
+
+      - name: Upload bundle artifact (debug)
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardpay-bundle-${{ inputs.architecture }}-${{ github.sha }}
+          path: cardpay-release.tar.gz
+          retention-days: 7
+
+      - name: Prepare SSH key
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          install -m 600 /dev/null "$RUNNER_TEMP/ec2_key"
+          printf '%s\n' "$EC2_SSH_KEY" > "$RUNNER_TEMP/ec2_key"
+
+      - name: Deploy to EC2 and restart
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT }}
+          DEPLOY_PATH: ${{ inputs.deploy_path }}
+          SYSTEMD_SERVICE: ${{ inputs.systemd_service }}
+        run: |
+          set -euo pipefail
+          test -n "${EC2_HOST:-}" || { echo "Missing secret EC2_HOST"; exit 1; }
+          test -n "${EC2_USER:-}" || { echo "Missing secret EC2_USER"; exit 1; }
+          PORT="${EC2_SSH_PORT:-22}"
+          KEY="$RUNNER_TEMP/ec2_key"
+          REMOTE_TAR="/tmp/cardpay-release-${{ github.run_id }}.tar.gz"
+          SSH_OPTS="-i $KEY -p $PORT -o StrictHostKeyChecking=accept-new"
+
+          scp $SSH_OPTS cardpay-release.tar.gz "${EC2_USER}@${EC2_HOST}:${REMOTE_TAR}"
+
+          ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" bash -s << REMOTE_SCRIPT
+          set -euo pipefail
+          DEPLOY_PATH="${DEPLOY_PATH}"
+          REMOTE_TAR="${REMOTE_TAR}"
+          SERVICE="${SYSTEMD_SERVICE}"
+
+          mkdir -p "\$DEPLOY_PATH"
+          TMP=\$(mktemp -d)
+          tar -xzf "\$REMOTE_TAR" -C "\$TMP"
+
+          # --delete ลบไฟล์เก่าในแอปที่ไม่มีใน bundle ใหม่
+          # exclude: ไฟล์เหล่านี้บน EC2 จะไม่ถูกลบและไม่ถูกแทนจาก artifact
+          rsync -a --delete \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            --exclude='Credentials.json' \
+            --exclude='google-service-account.json' \
+            "\$TMP/" "\$DEPLOY_PATH/"
+
+          rm -rf "\$TMP" "\$REMOTE_TAR"
+          sudo systemctl restart "\$SERVICE"
+          sudo systemctl is-active --quiet "\$SERVICE" || { echo "Service \$SERVICE is not active"; exit 1; }
+          echo "Deploy OK — \$SERVICE restarted"
+          REMOTE_SCRIPT
