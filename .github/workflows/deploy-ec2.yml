@@ -110,9 +110,11 @@ jobs:
           PORT="${EC2_SSH_PORT:-22}"
           KEY="$RUNNER_TEMP/ec2_key"
           REMOTE_TAR="/tmp/cardpay-release-${{ github.run_id }}.tar.gz"
+          # ssh ใช้ -p สำหรับพอร์ต; scp ใช้ -P (ตัวใหญ่) — -p ของ scp คือ preserve ทำให้เลขพอร์ตถูกมองเป็นไฟล์
           SSH_OPTS="-i $KEY -p $PORT -o StrictHostKeyChecking=accept-new"
+          SCP_OPTS="-i $KEY -P $PORT -o StrictHostKeyChecking=accept-new"
 
-          scp $SSH_OPTS cardpay-release.tar.gz "${EC2_USER}@${EC2_HOST}:${REMOTE_TAR}"
+          scp $SCP_OPTS cardpay-release.tar.gz "${EC2_USER}@${EC2_HOST}:${REMOTE_TAR}"
 
           ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" bash -s << REMOTE_SCRIPT
           set -euo pipefail
