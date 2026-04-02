@@ -21,8 +21,53 @@ function needsUserAppGate(pathname: string): boolean {
   );
 }
 
+function redirectToCustomLineLogin(request: NextRequest) {
+  const baseUrl = getPublicBaseUrl(request);
+  const reqUrl = request.nextUrl;
+  let callbackUrl = reqUrl.searchParams.get("callbackUrl")?.trim() ?? "";
+  if (!callbackUrl) {
+    callbackUrl = `${baseUrl}/user`;
+  }
+  const lineLogin = new URL("/api/auth/line", baseUrl);
+  try {
+    const resolved = new URL(callbackUrl, baseUrl);
+    const appOrigin = new URL(baseUrl).origin;
+    lineLogin.searchParams.set(
+      "callbackUrl",
+      resolved.origin === appOrigin ? resolved.toString() : `${baseUrl}/user`
+    );
+  } catch {
+    lineLogin.searchParams.set("callbackUrl", `${baseUrl}/user`);
+  }
+  // 302 so any accidental POST to NextAuth sign-in becomes a GET to our OAuth start.
+  return NextResponse.redirect(lineLogin, 302);
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  /**
+   * NextAuth LINE uses redirect_uri …/api/auth/callback/line and sets next-auth cookies only.
+   * This app gates /user on flexshare_user_token from …/api/auth/line/callback (LINE Console).
+   * Sending users through /api/auth/signin/line caused loops and redirect_uri mismatch.
+   */
+  if (pathname === "/api/auth/signin" || pathname.startsWith("/api/auth/signin/")) {
+    return redirectToCustomLineLogin(request);
+  }
+
+  if (pathname === "/api/auth/callback/line") {
+    const sp = request.nextUrl.searchParams;
+    if (sp.get("error")) {
+      return NextResponse.redirect(
+        new URL("/register?error=line_oauth_denied", getPublicBaseUrl(request)),
+        302
+      );
+    }
+    if (!sp.get("code")?.trim()) {
+      return redirectToCustomLineLogin(request);
+    }
+    return NextResponse.next();
+  }
 
   if (pathname.startsWith("/cms")) {
     if (pathname.startsWith("/cms/login")) {
@@ -140,6 +185,9 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/api/auth/signin",
+    "/api/auth/signin/:path*",
+    "/api/auth/callback/line",
     "/cms/:path*",
     "/register",
     "/register/:path*",

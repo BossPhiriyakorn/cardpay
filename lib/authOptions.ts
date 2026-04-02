@@ -37,6 +37,10 @@ function crossSiteCookieOptions(httpOnly: boolean) {
 }
 
 export const authOptions: NextAuthOptions = {
+  /** Middleware sends /api/auth/signin* to /api/auth/line so LINE uses …/line/callback + user JWT. */
+  pages: {
+    signIn: "/",
+  },
   providers: [
     LineProvider({
       clientId: process.env.LINE_CLIENT_ID ?? "",
