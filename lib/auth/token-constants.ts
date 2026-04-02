@@ -1,10 +1,13 @@
 /**
  * แยกชื่อที่เก็บโทเคนชัดเจน: แอดมิน vs ผู้ใช้
  *
- * - แอดมิน: HttpOnly cookie `flexshare_admin_token` (ตั้งจาก API login)
+ * LINE Login (channel เดียว — client id/secret/callback URL เดียวกัน):
+ * - ผู้ใช้แอป: `/api/auth/line` → callback ตั้ง `flexshare_user_token` (ลงนามด้วย USER_JWT_SECRET)
+ * - เชื่อม LINE แจ้งเตือนแอดมิน: `/api/auth/admin/line/connect` → callback สาขา admin — อัปเดต Mongo
+ *   ไม่สร้าง user JWT; ต้องล็อกอิน CMS ด้วยรหัสผ่านก่อน (`flexshare_admin_token` = ADMIN_JWT_SECRET)
+ *
  * - พอร์ทัลสปอนเซอร์: `flexshare_sponsor_token` (ไอดี/รหัสผ่าน — แยกจาก LINE)
- * - ผู้ใช้แอป: NextAuth ใช้คุกกี้ชื่อตาม next-auth (เช่น next-auth.session-token)
- * - ถ้ามี API ฝั่งผู้ใช้ที่ออก JWT เอง: ใช้ USER_JWT_SECRET + คีย์เก็บ client ด้านล่าง
+ * - NextAuth ยังมีในโปรเจกต์ (เช่น SessionProvider / provider อื่น) — session ผู้ใช้หลักของแอป LINE ใช้ JWT ด้านล่าง
  */
 
 /** คุกกี้ JWT แอดมิน (HttpOnly — middleware อ่านได้) */

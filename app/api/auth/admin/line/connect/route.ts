@@ -27,13 +27,11 @@ export async function GET() {
   signInUrl.searchParams.set("callbackUrl", `${getAppBaseUrl()}/cms/profile`);
 
   const response = NextResponse.redirect(signInUrl);
-  response.cookies.set(ADMIN_LINE_CONNECT_STATE_COOKIE, state, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 10,
-  });
+  response.cookies.set(
+    ADMIN_LINE_CONNECT_STATE_COOKIE,
+    state,
+    getLineOauthCookieOptions(60 * 10)
+  );
   response.cookies.set(
     ADMIN_LINE_CONNECT_TARGET_COOKIE,
     LINE_OAUTH_TARGET_ADMIN_CONNECT,
