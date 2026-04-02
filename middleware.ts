@@ -72,7 +72,13 @@ export async function middleware(request: NextRequest) {
   if (userToken) {
     try {
       token = await verifyUserAccessToken(userToken);
-    } catch {
+    } catch (e) {
+      // Edge middleware must see USER_JWT_SECRET at build time in many deployments;
+      // if the API signed the cookie but verify fails here, users loop on LINE login with little server logging.
+      console.error(
+        "[middleware] flexshare_user_token verify failed:",
+        e instanceof Error ? e.message : e
+      );
       token = null;
     }
   }
