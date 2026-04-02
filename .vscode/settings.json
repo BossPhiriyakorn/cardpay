@@ -1,0 +1,5 @@
+{
+  "terminal.integrated.env.windows": {
+    "PATH": "C:\\Users\\mahaw\\AppData\\Roaming\\fnm\\node-versions\\v24.14.1\\installation;${env:PATH}"
+  }
+}

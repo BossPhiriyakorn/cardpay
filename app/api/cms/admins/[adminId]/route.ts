@@ -1,0 +1,108 @@
+import bcrypt from "bcryptjs";
+import mongoose from "mongoose";
+import { NextResponse } from "next/server";
+
+import { createAuditLog } from "@/lib/audit-log";
+import { canManageAdmins } from "@/lib/auth/cms-admin-permissions";
+import { requireAdminSession } from "@/lib/auth/require-admin-session";
+import { connectToDatabase } from "@/lib/mongodb";
+import CmsAdmin from "@/models/CmsAdmin";
+
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ adminId: string }> }
+) {
+  const actor = await requireAdminSession();
+  if (!actor.ok) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+
+  const { adminId } = await context.params;
+  if (!mongoose.Types.ObjectId.isValid(adminId)) {
+    return NextResponse.json({ ok: false, error: "invalid_admin_id" }, { status: 400 });
+  }
+
+  const isSelfUpdate = actor.id === adminId;
+  if (!canManageAdmins(actor.role) && !isSelfUpdate) {
+    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+  }
+
+  let body: {
+    name?: string;
+    password?: string;
+    isActive?: boolean;
+    role?: "admin" | "reviewer";
+    lineNotifyEnabled?: boolean;
+    lineNotifyUserId?: string;
+  };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
+  }
+
+  const $set: Record<string, unknown> = {};
+  if (body.name !== undefined) {
+    const name = String(body.name).trim();
+    if (!name) {
+      return NextResponse.json({ ok: false, error: "invalid_name" }, { status: 400 });
+    }
+    $set.name = name;
+  }
+  if (body.password !== undefined) {
+    const password = String(body.password);
+    if (password && password.length < 8) {
+      return NextResponse.json({ ok: false, error: "password_too_short" }, { status: 400 });
+    }
+    if (password) {
+      $set.passwordHash = await bcrypt.hash(password, 10);
+    }
+  }
+  if (body.isActive !== undefined) {
+    if (!canManageAdmins(actor.role)) {
+      return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    }
+    $set.isActive = body.isActive === true;
+  }
+  if (body.role !== undefined) {
+    if (!canManageAdmins(actor.role)) {
+      return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    }
+    $set.role = body.role === "reviewer" ? "reviewer" : "admin";
+  }
+  if (body.lineNotifyEnabled !== undefined) {
+    $set.lineNotifyEnabled = body.lineNotifyEnabled === true;
+  }
+  if (body.lineNotifyUserId !== undefined) {
+    if (!isSelfUpdate && !canManageAdmins(actor.role)) {
+      return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    }
+    $set.lineNotifyUserId = String(body.lineNotifyUserId ?? "").trim();
+  }
+  if (Object.keys($set).length === 0) {
+    return NextResponse.json({ ok: false, error: "no_fields_to_update" }, { status: 400 });
+  }
+
+  try {
+    await connectToDatabase();
+    const updated = await CmsAdmin.findByIdAndUpdate(adminId, { $set }, { returnDocument: "after" })
+      .select("username name isActive")
+      .lean();
+
+    if (!updated) {
+      return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+    }
+
+    await createAuditLog({
+      action: `update cms admin: ${String(updated.username ?? "")} by ${actor.username}`,
+      category: "system",
+      targetType: "cms_admin",
+      targetId: String(updated._id),
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error("[api/cms/admins/:adminId:PATCH]", e);
+    return NextResponse.json({ ok: false, error: "database_unavailable" }, { status: 503 });
+  }
+}
