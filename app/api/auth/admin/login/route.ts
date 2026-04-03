@@ -64,7 +64,7 @@ export async function POST(request: Request) {
   });
 
   await createAuditLog({
-    action: `admin login: ${username}`,
+    action: `เข้าสู่ระบบแอดมิน: ${username}`,
     category: "auth",
     targetType: "cms_admin",
     targetId: username,

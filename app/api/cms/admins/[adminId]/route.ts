@@ -8,6 +8,67 @@ import { requireAdminSession } from "@/lib/auth/require-admin-session";
 import { connectToDatabase } from "@/lib/mongodb";
 import CmsAdmin from "@/models/CmsAdmin";
 
+/** ลบแอดมินออกจาก MongoDB (เฉพาะ role admin เต็ม, ห้ามลบตัวเอง, ต้องเหลืออย่างน้อย 1 บัญชีที่ไม่ใช่ reviewer) */
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ adminId: string }> }
+) {
+  const actor = await requireAdminSession();
+  if (!actor.ok) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+  if (!canManageAdmins(actor.role)) {
+    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+  }
+
+  const { adminId } = await context.params;
+  if (!mongoose.Types.ObjectId.isValid(adminId)) {
+    return NextResponse.json({ ok: false, error: "invalid_admin_id" }, { status: 400 });
+  }
+
+  if (actor.id === adminId) {
+    return NextResponse.json({ ok: false, error: "cannot_delete_self" }, { status: 400 });
+  }
+
+  const oid = new mongoose.Types.ObjectId(adminId);
+
+  try {
+    await connectToDatabase();
+    const target = await CmsAdmin.findById(oid).select("username role").lean();
+    if (!target) {
+      return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+    }
+
+    const isReviewer = target.role === "reviewer";
+    if (!isReviewer) {
+      const remainingPrivileged = await CmsAdmin.countDocuments({
+        _id: { $ne: oid },
+        role: { $ne: "reviewer" },
+      });
+      if (remainingPrivileged < 1) {
+        return NextResponse.json(
+          { ok: false, error: "last_privileged_admin" },
+          { status: 409 }
+        );
+      }
+    }
+
+    await CmsAdmin.deleteOne({ _id: oid });
+
+    await createAuditLog({
+      action: `ลบแอดมิน CMS: ${String(target.username ?? "")} โดย ${actor.username}`,
+      category: "system",
+      targetType: "cms_admin",
+      targetId: adminId,
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error("[api/cms/admins/:adminId:DELETE]", e);
+    return NextResponse.json({ ok: false, error: "database_unavailable" }, { status: 503 });
+  }
+}
+
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ adminId: string }> }
@@ -98,7 +159,7 @@ export async function PATCH(
     }
 
     await createAuditLog({
-      action: `update cms admin: ${String(updated.username ?? "")} by ${actor.username}`,
+      action: `แก้ไขข้อมูลแอดมิน CMS: ${String(updated.username ?? "")} โดย ${actor.username}`,
       category: "system",
       targetType: "cms_admin",
       targetId: String(updated._id),

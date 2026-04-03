@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     });
 
     await createAuditLog({
-      action: `create cms admin: ${username} by ${admin.username}`,
+      action: `สร้างแอดมิน CMS: ${username} โดย ${admin.username}`,
       category: "system",
       targetType: "cms_admin",
       targetId: String(created._id),

@@ -16,7 +16,7 @@ export function useCmsAdminMe() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/auth/admin/me', { cache: 'no-store' })
+    fetch('/api/auth/admin/me', { cache: 'no-store', credentials: 'same-origin' })
       .then((r) => r.json())
       .then((d: { ok?: boolean; id?: string; username?: string; name?: string; role?: 'admin' | 'reviewer'; roleLabel?: string }) => {
         if (!cancelled && d.ok && d.id && d.username && d.role && d.roleLabel) {

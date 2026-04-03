@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { ShieldCheck, Plus, Search, User, Calendar } from 'lucide-react';
+import { ShieldCheck, Plus, Search, User, Calendar, Trash2 } from 'lucide-react';
 import { useCmsAdminMe } from '@/hooks/useCmsAdminMe';
 
 type AdminRow = {
@@ -16,7 +16,7 @@ type AdminRow = {
 };
 
 export default function AdminsPage() {
-  const { isAdmin } = useCmsAdminMe();
+  const { isAdmin, admin: me, loading: sessionLoading } = useCmsAdminMe();
   const [admins, setAdmins] = useState<AdminRow[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -33,7 +33,7 @@ export default function AdminsPage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch('/api/cms/admins', { cache: 'no-store' });
+      const res = await fetch('/api/cms/admins', { cache: 'no-store', credentials: 'same-origin' });
       const data = (await res.json()) as { ok?: boolean; admins?: AdminRow[]; error?: string };
       if (!res.ok || !data.ok) throw new Error(data.error ?? 'load_failed');
       setAdmins(data.admins ?? []);
@@ -65,6 +65,7 @@ export default function AdminsPage() {
       const res = await fetch('/api/cms/admins', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify(draft),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
@@ -96,6 +97,7 @@ export default function AdminsPage() {
       const res = await fetch(`/api/cms/admins/${editing.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify(changes),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
@@ -127,6 +129,7 @@ export default function AdminsPage() {
       const res = await fetch(`/api/cms/admins/${admin.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({ isActive: admin.status !== 'Online' }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
@@ -136,6 +139,52 @@ export default function AdminsPage() {
       await loadAdmins();
     } catch {
       setError('อัปเดตสถานะแอดมินไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteAdmin(admin: AdminRow) {
+    if (!isAdmin) {
+      setError('สิทธิ์ตรวจสอบไม่สามารถลบแอดมินได้');
+      return;
+    }
+    if (me?.id === admin.id) {
+      setError('ไม่สามารถลบบัญชีที่กำลังเข้าใช้ได้');
+      return;
+    }
+    if (
+      !window.confirm(
+        `ลบแอดมิน "${admin.name}" (${admin.username}) ถาวรจากระบบหรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้`
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/cms/admins/${admin.id}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error ?? 'delete_failed');
+      }
+      if (editing?.id === admin.id) {
+        setEditing(null);
+        setEditName('');
+        setEditPassword('');
+        setEditRole('admin');
+      }
+      await loadAdmins();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : '';
+      if (message === 'cannot_delete_self') setError('ไม่สามารถลบบัญชีที่กำลังเข้าใช้ได้');
+      else if (message === 'last_privileged_admin')
+        setError('ต้องเหลืออย่างน้อยหนึ่งแอดมินที่ไม่ใช่สิทธิ์ตรวจสอบ');
+      else if (message === 'forbidden') setError('ไม่มีสิทธิ์ลบแอดมิน');
+      else setError('ลบแอดมินไม่สำเร็จ');
     } finally {
       setSaving(false);
     }
@@ -156,16 +205,20 @@ export default function AdminsPage() {
             />
           </div>
         </div>
-        {isAdmin ? (
+        {sessionLoading ? (
+          <div className="w-full md:w-auto rounded-2xl border border-[#e1bee7] bg-[#faf5fc] px-4 py-3 text-xs font-bold text-[#6a1b9a]/70">
+            กำลังโหลดสิทธิ์...
+          </div>
+        ) : isAdmin ? (
           <button onClick={() => setShowCreate((value) => !value)} className="flex items-center justify-center gap-2 bg-[#8e24aa] text-white text-xs md:text-sm font-black px-5 md:px-6 py-2.5 md:py-3 rounded-2xl shadow-[0_10px_25px_rgba(142,36,170,0.28)] hover:scale-105 transition-all w-full md:w-auto"><Plus size={18} className="md:w-5 md:h-5" />เพิ่มแอดมิน</button>
         ) : (
           <div className="w-full md:w-auto rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800">
-            สิทธิ์ตรวจสอบดูข้อมูลแอดมินได้ แต่ไม่สามารถเพิ่มหรือแก้ไขได้
+            สิทธิ์ตรวจสอบดูข้อมูลแอดมินได้ แต่ไม่สามารถเพิ่ม แก้ไข หรือลบได้ — ฟังก์ชันลบแอดมินมีเฉพาะแอดมินหลัก
           </div>
         )}
       </div>
 
-      {showCreate && isAdmin ? (
+      {showCreate && isAdmin && !sessionLoading ? (
         <div className="rounded-3xl border border-[#e1bee7] bg-white p-5 md:p-6 shadow-sm space-y-4">
           <div className="grid gap-4 md:grid-cols-4">
             <input value={draft.username} onChange={(e) => setDraft((prev) => ({ ...prev, username: e.target.value }))} placeholder="username" className="rounded-2xl border border-[#e1bee7] bg-[#faf5fc] px-4 py-3 text-sm focus:outline-none focus:border-[#8e24aa]/50" />
@@ -213,24 +266,39 @@ export default function AdminsPage() {
                 <div className="flex items-center gap-2 md:gap-3 text-[10px] md:text-xs text-[#6a1b9a]/70"><Calendar size={12} className="md:w-3.5 md:h-3.5" /> ล่าสุด: {admin.lastActive}</div>
               </div>
 
-              {isAdmin ? (
-                <div className="flex gap-2 md:gap-3 pt-3 md:pt-4">
+              {sessionLoading ? (
+                <div className="pt-3 md:pt-4 text-[11px] font-bold text-[#6a1b9a]/50">กำลังโหลดสิทธิ์...</div>
+              ) : isAdmin ? (
+                <div className="flex flex-wrap gap-2 md:gap-3 pt-3 md:pt-4">
                   <button
+                    type="button"
                     onClick={() => {
                       setEditing(admin);
                       setEditName(admin.name);
                       setEditPassword('');
                       setEditRole(admin.roleKey);
                     }}
-                    className="flex-1 py-2 md:py-2.5 bg-[#faf5fc] border border-[#e1bee7] rounded-xl text-[10px] md:text-xs font-bold text-[#6a1b9a] hover:bg-[#f3e5f5] transition-all"
+                    className="min-w-0 flex-1 basis-[40%] py-2 md:py-2.5 bg-[#faf5fc] border border-[#e1bee7] rounded-xl text-[10px] md:text-xs font-bold text-[#6a1b9a] hover:bg-[#f3e5f5] transition-all"
                   >
                     แก้ไข
                   </button>
                   <button
+                    type="button"
                     onClick={() => void toggleAdminStatus(admin)}
-                    className="px-3 py-2 rounded-xl bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 transition-all shrink-0 text-[10px] md:text-xs font-bold"
+                    className="min-w-0 flex-1 basis-[40%] px-2 py-2 rounded-xl bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 transition-all text-[10px] md:text-xs font-bold"
                   >
                     {admin.status === 'Online' ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving || me?.id === admin.id}
+                    onClick={() => void deleteAdmin(admin)}
+                    aria-label="ลบแอดมินถาวร"
+                    title={me?.id === admin.id ? 'ไม่สามารถลบบัญชีที่กำลังเข้าใช้' : 'ลบแอดมินออกจากระบบถาวร'}
+                    className="flex w-full min-[380px]:w-auto min-[380px]:flex-1 items-center justify-center gap-1.5 py-2 md:py-2.5 px-3 rounded-xl border-2 border-rose-400 bg-white text-rose-700 hover:bg-rose-50 transition-all text-[10px] md:text-xs font-black disabled:opacity-40 disabled:pointer-events-none"
+                  >
+                    <Trash2 size={14} className="shrink-0" />
+                    ลบแอดมิน
                   </button>
                 </div>
               ) : (
@@ -247,7 +315,7 @@ export default function AdminsPage() {
           </div>
         ) : null}
       </div>
-      {editing && isAdmin ? (
+      {editing && isAdmin && !sessionLoading ? (
         <div className="rounded-3xl border border-[#e1bee7] bg-white p-5 md:p-6 shadow-sm space-y-4">
           <h2 className="text-lg font-black text-[#4a148c]">แก้ไขแอดมิน `{editing.username}`</h2>
           <div className="grid gap-4 md:grid-cols-3">

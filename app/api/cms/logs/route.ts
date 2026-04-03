@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 
+import { toThaiAuditAction } from "@/lib/audit-action-th";
+import { createAuditLog } from "@/lib/audit-log";
+import { canManageAdmins } from "@/lib/auth/cms-admin-permissions";
 import { requireAdminSession } from "@/lib/auth/require-admin-session";
 import { connectToDatabase } from "@/lib/mongodb";
 import AuditLog from "@/models/AuditLog";
+
+/** ต้องตรงกับ body ที่ส่งจาก CMS เพื่อกันคลิกพลาด */
+const CLEAR_AUDIT_LOGS_CONFIRM = "CLEAR_ALL_AUDIT_LOGS";
 
 const PAGE_SIZE = 20;
 
@@ -49,7 +55,7 @@ export async function GET(request: Request) {
       totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
       logs: docs.map((doc) => ({
         id: String(doc._id),
-        action: String(doc.action ?? ""),
+        action: toThaiAuditAction(String(doc.action ?? "")),
         category: String(doc.category ?? "other"),
         targetType: String(doc.targetType ?? ""),
         targetId: String(doc.targetId ?? ""),
@@ -58,6 +64,41 @@ export async function GET(request: Request) {
     });
   } catch (e) {
     console.error("[api/cms/logs]", e);
+    return NextResponse.json({ ok: false, error: "database_unavailable" }, { status: 503 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  const admin = await requireAdminSession();
+  if (!admin.ok) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+  if (!canManageAdmins(admin.role)) {
+    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+  }
+
+  let body: { confirm?: string };
+  try {
+    body = (await request.json()) as { confirm?: string };
+  } catch {
+    return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
+  }
+  if (body.confirm !== CLEAR_AUDIT_LOGS_CONFIRM) {
+    return NextResponse.json({ ok: false, error: "confirmation_required" }, { status: 400 });
+  }
+
+  try {
+    await connectToDatabase();
+    const result = await AuditLog.deleteMany({});
+    await createAuditLog({
+      action: `ล้างประวัติ ${String(result.deletedCount)} รายการ โดย ${admin.username}`,
+      category: "system",
+      targetType: "audit_log",
+      targetId: "all",
+    });
+    return NextResponse.json({ ok: true, deletedCount: result.deletedCount });
+  } catch (e) {
+    console.error("[api/cms/logs:DELETE]", e);
     return NextResponse.json({ ok: false, error: "database_unavailable" }, { status: 503 });
   }
 }

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Search, Clock, Shield } from 'lucide-react';
+import { Search, Clock, Shield, Trash2 } from 'lucide-react';
+import { useCmsAdminMe } from '@/hooks/useCmsAdminMe';
 
 type LogRow = {
   id: string;
@@ -21,7 +22,10 @@ const CATEGORY_OPTIONS = [
   { value: 'other', label: 'อื่นๆ' },
 ];
 
+const CLEAR_AUDIT_LOGS_CONFIRM = 'CLEAR_ALL_AUDIT_LOGS';
+
 export default function LogsPage() {
+  const { isAdmin, loading: sessionLoading } = useCmsAdminMe();
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
@@ -29,6 +33,8 @@ export default function LogsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [listVersion, setListVersion] = useState(0);
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,7 +47,10 @@ export default function LogsPage() {
           category,
           search,
         });
-        const res = await fetch(`/api/cms/logs?${params.toString()}`, { cache: 'no-store' });
+        const res = await fetch(`/api/cms/logs?${params.toString()}`, {
+          cache: 'no-store',
+          credentials: 'same-origin',
+        });
         const data = (await res.json()) as {
           ok?: boolean;
           logs?: LogRow[];
@@ -70,11 +79,47 @@ export default function LogsPage() {
     return () => {
       cancelled = true;
     };
-  }, [page, category, search]);
+  }, [page, category, search, listVersion]);
+
+  async function clearAllLogs() {
+    if (!isAdmin) return;
+    if (
+      !window.confirm(
+        'ลบประวัติทั้งหมดในฐานข้อมูลหรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้ (จะเหลือเพียงบันทึกว่ามีการล้างประวัติ 1 รายการ)'
+      )
+    ) {
+      return;
+    }
+    if (!window.confirm('ยืนยันอีกครั้งว่าต้องการล้างประวัติทั้งหมด')) {
+      return;
+    }
+    setClearing(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/cms/logs', {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: CLEAR_AUDIT_LOGS_CONFIRM }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error ?? 'clear_failed');
+      }
+      setPage(1);
+      setListVersion((v) => v + 1);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : '';
+      if (message === 'forbidden') setError('ไม่มีสิทธิ์ล้างประวัติ');
+      else setError('ล้างประวัติไม่สำเร็จ');
+    } finally {
+      setClearing(false);
+    }
+  }
 
   return (
     <div className="space-y-8 text-[#4a148c]">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white border border-[#e1bee7] p-4 md:p-6 rounded-3xl shadow-sm">
+      <div className="flex flex-col gap-4 bg-white border border-[#e1bee7] p-4 md:p-6 rounded-3xl shadow-sm">
         <div className="flex flex-col md:flex-row gap-3 w-full">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e24aa]/45" size={16} />
@@ -95,7 +140,7 @@ export default function LogsPage() {
               setPage(1);
               setCategory(event.target.value);
             }}
-            className="bg-[#faf5fc] border border-[#e1bee7] rounded-2xl px-4 py-3 text-sm text-[#4a148c] focus:outline-none focus:border-[#8e24aa]/50"
+            className="bg-[#faf5fc] border border-[#e1bee7] rounded-2xl px-4 py-3 text-sm text-[#4a148c] focus:outline-none focus:border-[#8e24aa]/50 md:min-w-[200px]"
           >
             {CATEGORY_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -105,6 +150,33 @@ export default function LogsPage() {
           </select>
         </div>
       </div>
+
+      {sessionLoading ? (
+        <div className="rounded-2xl border border-[#e1bee7] bg-[#faf5fc] px-4 py-3 text-sm font-bold text-[#6a1b9a]/70">
+          กำลังโหลดสิทธิ์...
+        </div>
+      ) : isAdmin ? (
+        <div className="flex flex-col gap-3 rounded-2xl border-2 border-rose-300 bg-gradient-to-br from-rose-50 to-white px-4 py-4 md:flex-row md:items-center md:justify-between md:gap-6 shadow-sm">
+          <p className="text-sm leading-relaxed text-[#4a148c]">
+            <span className="font-black text-rose-800">ล้างประวัติทั้งหมด</span>
+            {' — '}
+            ลบรายการในฐานข้อมูลทุกแถวของประวัตินี้ (หลังล้างจะมีบันทึกสรุปว่ามีการล้าง 1 รายการ)
+          </p>
+          <button
+            type="button"
+            disabled={clearing || loading}
+            onClick={() => void clearAllLogs()}
+            className="shrink-0 inline-flex items-center justify-center gap-2 rounded-2xl border-2 border-rose-500 bg-white px-5 py-3 text-sm font-black text-rose-800 shadow-sm hover:bg-rose-100 disabled:opacity-50"
+          >
+            <Trash2 size={18} />
+            {clearing ? 'กำลังล้าง...' : 'ล้างประวัติทั้งหมด'}
+          </button>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-bold text-sky-950">
+          บัญชีสิทธิ์ตรวจสอบดูประวัติได้เท่านั้น — ไม่มีปุ่มล้างประวัติ (ใช้ได้เฉพาะแอดมินหลัก)
+        </div>
+      )}
 
       <div className="bg-white border border-[#e1bee7] rounded-3xl overflow-hidden shadow-sm">
         <div className="overflow-x-auto">

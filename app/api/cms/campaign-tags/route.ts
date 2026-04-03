@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     });
 
     await createAuditLog({
-      action: `create campaign tag: ${nameTh} (${slug}) by ${admin.username}`,
+      action: `สร้างแท็กแคมเปญ: ${nameTh} (${slug}) โดย ${admin.username}`,
       category: "campaign",
       targetType: "campaign_tag",
       targetId: String(tag._id),
@@ -149,7 +149,7 @@ export async function PATCH(request: Request) {
     }
 
     await createAuditLog({
-      action: `update campaign tag: ${String(updated.nameTh ?? "")} by ${admin.username}`,
+      action: `แก้ไขแท็กแคมเปญ: ${String(updated.nameTh ?? "")} โดย ${admin.username}`,
       category: "campaign",
       targetType: "campaign_tag",
       targetId: String(updated._id),

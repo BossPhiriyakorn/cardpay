@@ -29,7 +29,7 @@ export async function POST() {
 
   if (username) {
     await createAuditLog({
-      action: `admin logout: ${username}`,
+      action: `ออกจากระบบแอดมิน: ${username}`,
       category: "auth",
       targetType: "cms_admin",
       targetId: username,

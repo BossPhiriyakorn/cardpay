@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Check, CheckCircle2, Copy, UserCircle2, XCircle } from "lucide-react";
 import { driveImageViewUrl, parseGoogleDriveFileId, resolveDriveImageSrcForPreview } from "@/lib/drive-image-url";
 import { useCmsAdminMe } from "@/hooks/useCmsAdminMe";
@@ -36,6 +36,12 @@ type ReferredFriendReward = {
   rewardCampaignName: string;
   rewardAmount: number;
 };
+
+type ShareTableFilter = "all" | "referral_only";
+
+type ShareTableRow =
+  | { kind: "campaign"; row: CampaignShare }
+  | { kind: "referral_first"; friend: ReferredFriendReward };
 
 type TransferRecord = {
   id: string;
@@ -84,6 +90,17 @@ const money = new Intl.NumberFormat("th-TH", {
   maximumFractionDigits: 0,
 });
 
+function formatThaiDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" });
+  } catch {
+    return "—";
+  }
+}
+
 export default function MemberDetailPage({ params }: Props) {
   const { isAdmin, isReviewer } = useCmsAdminMe();
   const { memberId: resolvedId } = use(params);
@@ -95,6 +112,7 @@ export default function MemberDetailPage({ params }: Props) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [reviewReason, setReviewReason] = useState("");
   const [reviewSubmitting, setReviewSubmitting] = useState<"approve" | "reject" | null>(null);
+  const [shareFilter, setShareFilter] = useState<ShareTableFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -129,6 +147,72 @@ export default function MemberDetailPage({ params }: Props) {
     };
   }, [resolvedId]);
 
+  const shareTableModel = useMemo(() => {
+    const empty = {
+      shareTableRows: [] as ShareTableRow[],
+      footerOwnShareEarned: 0,
+      footerReferralEarned: 0,
+      footerTotalEarned: 0,
+    };
+    if (!member) return empty;
+
+    const claimedReferrals = member.referredFriends.filter(
+      (f) =>
+        f.rewardClaimed &&
+        Number(f.rewardAmount ?? 0) > 0 &&
+        String(f.rewardCampaignId ?? "").trim() !== ""
+    );
+
+    if (shareFilter === "referral_only") {
+      const sorted = [...claimedReferrals].sort((a, b) => {
+        const cn = (a.rewardCampaignName || "").localeCompare(b.rewardCampaignName || "", "th");
+        if (cn !== 0) return cn;
+        return (a.name || "").localeCompare(b.name || "", "th");
+      });
+      const sumRef = sorted.reduce((s, f) => s + Number(f.rewardAmount ?? 0), 0);
+      return {
+        shareTableRows: sorted.map((friend) => ({ kind: "referral_first" as const, friend })),
+        footerOwnShareEarned: 0,
+        footerReferralEarned: sumRef,
+        footerTotalEarned: sumRef,
+      };
+    }
+
+    const orderedCampaignIds = member.campaignShares.map((c) => c.campaignId);
+    const campaignById = new Map(member.campaignShares.map((c) => [c.campaignId, c]));
+    const rows: ShareTableRow[] = [];
+
+    for (const cid of orderedCampaignIds) {
+      const c = campaignById.get(cid);
+      if (c) rows.push({ kind: "campaign", row: c });
+      const forCampaign = claimedReferrals
+        .filter((f) => f.rewardCampaignId === cid)
+        .sort((a, b) => (a.name || "").localeCompare(b.name || "", "th"));
+      for (const f of forCampaign) {
+        rows.push({ kind: "referral_first", friend: f });
+      }
+    }
+
+    const campaignIdsSet = new Set(orderedCampaignIds);
+    const orphans = claimedReferrals
+      .filter((f) => !campaignIdsSet.has(f.rewardCampaignId))
+      .sort((a, b) => {
+        const cn = (a.rewardCampaignName || "").localeCompare(b.rewardCampaignName || "", "th");
+        if (cn !== 0) return cn;
+        return (a.name || "").localeCompare(b.name || "", "th");
+      });
+    for (const f of orphans) {
+      rows.push({ kind: "referral_first", friend: f });
+    }
+
+    return {
+      shareTableRows: rows,
+      footerOwnShareEarned: member.campaignShares.reduce((s, i) => s + i.ownShareEarned, 0),
+      footerReferralEarned: member.campaignShares.reduce((s, i) => s + i.referralEarned, 0),
+      footerTotalEarned: member.campaignShares.reduce((s, i) => s + i.totalEarned, 0),
+    };
+  }, [member, shareFilter]);
+
   const copyToClipboard = async (text: string, key: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -156,9 +240,6 @@ export default function MemberDetailPage({ params }: Props) {
   }
 
   const linkedBank = member.linkedBankAccount;
-  const totalCampaignEarned = member.campaignShares.reduce((sum, item) => sum + item.totalEarned, 0);
-  const totalOwnShareEarned = member.campaignShares.reduce((sum, item) => sum + item.ownShareEarned, 0);
-  const totalReferralEarned = member.campaignShares.reduce((sum, item) => sum + item.referralEarned, 0);
   const idCardFileId = linkedBank?.idCardDriveFileId?.trim() ?? "";
   const bankBookFileId = linkedBank?.bankBookDriveFileId?.trim() ?? "";
   const idCardPreviewSrc = idCardFileId ? resolveDriveImageSrcForPreview(idCardFileId) : "";
@@ -554,13 +635,47 @@ export default function MemberDetailPage({ params }: Props) {
       </div>
 
       <div className="bg-white border border-[#e1bee7] rounded-3xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#e1bee7]">
-          <h2 className="text-base md:text-lg font-black text-[#4a148c]">
-            ตารางแคมเปญที่สมาชิกแชร์
-          </h2>
-          <p className="text-xs text-[#6a1b9a]/60 mt-1">
-            รายการแยกตามแคมเปญ พร้อมแยกยอดจากเราแชร์เองและยอดโบนัสจากเพื่อนที่ใช้รหัสเรา
-          </p>
+        <div className="px-6 py-4 border-b border-[#e1bee7] flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-base md:text-lg font-black text-[#4a148c]">
+              ตารางแคมเปญที่สมาชิกแชร์
+            </h2>
+            <p className="text-xs text-[#6a1b9a]/60 mt-1 max-w-xl">
+              รายการแยกตามแคมเปญ พร้อมแยกยอดจากเราแชร์เองและยอดโบนัสจากเพื่อนที่ใช้รหัสแนะนำ
+              {shareFilter === "all" ? (
+                <>
+                  {" "}
+                  — แถวสีอ่อนด้านล่างแต่ละแคมเปญคือรางวัลครั้งแรกเมื่อเพื่อนแชร์ (รายละเอียดตามเพื่อน) ยอดรวมท้ายตารางยังเป็นสรุปตามแคมเปญเท่านั้น
+                </>
+              ) : (
+                <> — กำลังแสดงเฉพาะรายการรางวัลแนะนำเพื่อนครั้งแรก</>
+              )}
+            </p>
+          </div>
+          <div className="flex shrink-0 rounded-2xl border border-[#e1bee7] bg-[#faf5fc] p-1">
+            <button
+              type="button"
+              onClick={() => setShareFilter("all")}
+              className={`rounded-xl px-4 py-2 text-xs font-black transition-colors ${
+                shareFilter === "all"
+                  ? "bg-white text-[#8e24aa] shadow-sm"
+                  : "text-[#6a1b9a]/70 hover:text-[#4a148c]"
+              }`}
+            >
+              ทั้งหมด
+            </button>
+            <button
+              type="button"
+              onClick={() => setShareFilter("referral_only")}
+              className={`rounded-xl px-4 py-2 text-xs font-black transition-colors ${
+                shareFilter === "referral_only"
+                  ? "bg-white text-[#8e24aa] shadow-sm"
+                  : "text-[#6a1b9a]/70 hover:text-[#4a148c]"
+              }`}
+            >
+              รายการแนะนำเพื่อน
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px]">
@@ -574,32 +689,80 @@ export default function MemberDetailPage({ params }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#f1dff5]">
-              {member.campaignShares.map((row) => (
-                <tr key={row.campaignId} className="hover:bg-[#fcf7fd] transition-colors">
-                  <td className="px-6 py-4">
-                    <p className="text-sm font-bold text-[#4a148c]">{row.campaignName}</p>
-                    <p className="text-[11px] text-[#6a1b9a]/55">Campaign ID: {row.campaignId}</p>
+              {shareTableModel.shareTableRows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-10 text-center text-sm text-[#6a1b9a]/65 font-bold">
+                    {shareFilter === "referral_only"
+                      ? "ยังไม่มีรายการรางวัลแนะนำเพื่อนครั้งแรก หรือเพื่อนยังไม่ได้แชร์แคมเปญแรกหลังใช้รหัสแนะนำ"
+                      : "ยังไม่มีข้อมูลการแชร์แคมเปญ"}
                   </td>
-                  <td className="px-6 py-4 text-sm text-[#4a148c]">{row.shareCount.toLocaleString("th-TH")} ครั้ง</td>
-                  <td className="px-6 py-4 text-sm font-bold text-sky-700">{money.format(row.ownShareEarned)}</td>
-                  <td className="px-6 py-4 text-sm font-bold text-emerald-700">{money.format(row.referralEarned)}</td>
-                  <td className="px-6 py-4 text-sm font-bold text-[#8e24aa]">{money.format(row.totalEarned)}</td>
                 </tr>
-              ))}
+              ) : (
+                shareTableModel.shareTableRows.map((entry) =>
+                  entry.kind === "campaign" ? (
+                    <tr key={`c-${entry.row.campaignId}`} className="hover:bg-[#fcf7fd] transition-colors">
+                      <td className="px-6 py-4">
+                        <p className="text-sm font-bold text-[#4a148c]">{entry.row.campaignName}</p>
+                        <p className="text-[11px] text-[#6a1b9a]/55">Campaign ID: {entry.row.campaignId}</p>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-[#4a148c]">
+                        {entry.row.shareCount.toLocaleString("th-TH")} ครั้ง
+                      </td>
+                      <td className="px-6 py-4 text-sm font-bold text-sky-700">
+                        {money.format(entry.row.ownShareEarned)}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-bold text-emerald-700">
+                        {money.format(entry.row.referralEarned)}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-bold text-[#8e24aa]">
+                        {money.format(entry.row.totalEarned)}
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr
+                      key={`r-${entry.friend.id}-${entry.friend.rewardCampaignId}`}
+                      className="bg-emerald-50/40 hover:bg-emerald-50/70 transition-colors"
+                    >
+                      <td className="px-6 py-4">
+                        <p className="text-xs font-black uppercase tracking-wide text-emerald-800/90">
+                          รางวัลแนะนำเพื่อนครั้งแรก
+                        </p>
+                        <p className="text-sm font-bold text-[#4a148c] mt-1">{entry.friend.rewardCampaignName}</p>
+                        <p className="text-[11px] text-[#6a1b9a]/55">Campaign ID: {entry.friend.rewardCampaignId}</p>
+                        <p className="text-[11px] text-[#6a1b9a]/70 mt-1">
+                          เพื่อนที่ใช้รหัสเรา: <span className="font-bold text-[#4a148c]">{entry.friend.name}</span>{" "}
+                          <span className="text-[#6a1b9a]/50">({entry.friend.referralCode})</span>
+                        </p>
+                        <p className="text-[10px] text-[#6a1b9a]/55 mt-0.5">
+                          เวลาที่ได้รับรางวัล: {formatThaiDateTime(entry.friend.rewardClaimedAt)}
+                        </p>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-[#6a1b9a]/70">ครั้งแรก</td>
+                      <td className="px-6 py-4 text-sm text-[#6a1b9a]/45">—</td>
+                      <td className="px-6 py-4 text-sm font-bold text-emerald-700">
+                        {money.format(entry.friend.rewardAmount)}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-bold text-[#8e24aa]">
+                        {money.format(entry.friend.rewardAmount)}
+                      </td>
+                    </tr>
+                  )
+                )
+              )}
             </tbody>
             <tfoot>
               <tr className="bg-[#faf5fc] border-t border-[#e1bee7]">
                 <td className="px-6 py-4 text-sm font-black text-[#4a148c]" colSpan={2}>
-                  รวมจากแคมเปญทั้งหมด
+                  {shareFilter === "referral_only" ? "รวมรายการแนะนำเพื่อน" : "รวมจากแคมเปญทั้งหมด"}
                 </td>
                 <td className="px-6 py-4 text-sm font-black text-sky-700">
-                  {money.format(totalOwnShareEarned)}
+                  {money.format(shareTableModel.footerOwnShareEarned)}
                 </td>
                 <td className="px-6 py-4 text-sm font-black text-emerald-700">
-                  {money.format(totalReferralEarned)}
+                  {money.format(shareTableModel.footerReferralEarned)}
                 </td>
                 <td className="px-6 py-4 text-sm font-black text-[#8e24aa]">
-                  {money.format(totalCampaignEarned)}
+                  {money.format(shareTableModel.footerTotalEarned)}
                 </td>
               </tr>
             </tfoot>

@@ -275,8 +275,8 @@ export async function PATCH(
     await createAuditLog({
       action:
         action === "approve"
-          ? `approve member bank account: ${memberId} by ${admin.username}`
-          : `reject member bank account: ${memberId} by ${admin.username}`,
+          ? `อนุมัติบัญชีธนาคารของสมาชิก (${memberId}) โดย ${admin.username}`
+          : `ปฏิเสธบัญชีธนาคารของสมาชิก (${memberId}) โดย ${admin.username}`,
       category: "member",
       targetType: "bank_account",
       targetId: memberId,

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { toThaiAuditAction } from "@/lib/audit-action-th";
 import { requireAdminSession } from "@/lib/auth/require-admin-session";
 import { connectToDatabase } from "@/lib/mongodb";
 import { AuditLog, BankAccount, Campaign, CmsAdmin, User, WithdrawalRequest } from "@/models";
@@ -85,7 +86,7 @@ export async function GET() {
       })),
       activities: latestActivities.map((x) => ({
         id: String(x._id),
-        action: String(x.action ?? ""),
+        action: toThaiAuditAction(String(x.action ?? "")),
         createdAt: x.createdAt instanceof Date ? x.createdAt.toISOString().slice(0, 16).replace("T", " ") : "-",
       })),
     });
