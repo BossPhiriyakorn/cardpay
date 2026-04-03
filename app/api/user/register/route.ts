@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/auth/require-user-session";
+import { getUserCookieOptions, signUserAccessToken } from "@/lib/auth/user-jwt";
+import { USER_TOKEN_COOKIE } from "@/lib/auth/token-constants";
 import { connectToDatabase } from "@/lib/mongodb";
 import { ensureUserReferralCode } from "@/lib/referral-code";
 import { isValidThaiPhoneDigits, sanitizeThaiPhoneInput } from "@/lib/thai-phone";
@@ -102,7 +104,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "user_not_found" }, { status: 404 });
     }
 
-    return NextResponse.json({ ok: true });
+    const refreshedToken = await signUserAccessToken(userId, "user", true);
+    const res = NextResponse.json({ ok: true });
+    res.cookies.set(USER_TOKEN_COOKIE, refreshedToken, getUserCookieOptions());
+    return res;
   } catch (e) {
     console.error("[api/user/register:post]", e);
     return NextResponse.json({ ok: false, error: "database_unavailable" }, { status: 503 });

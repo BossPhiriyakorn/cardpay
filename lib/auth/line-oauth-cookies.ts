@@ -10,7 +10,8 @@ export function getLineOauthCookieOptions(maxAgeSec?: number) {
   return {
     httpOnly: true,
     secure,
-    sameSite: secure ? ("none" as const) : ("lax" as const),
+    /** Lax พอสำหรับ OAuth แบบ redirect กลับโดเมนเดียวกัน — เข้ากันได้กับ LINE in-app WebView ดีกว่า SameSite=None */
+    sameSite: "lax" as const,
     path: "/",
     maxAge: maxAgeSec ?? 10 * 60,
   };

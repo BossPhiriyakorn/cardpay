@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
 import { ADMIN_TOKEN_COOKIE, USER_TOKEN_COOKIE } from "@/lib/auth/token-constants";
+import { tryGetUserJwtSecretKey, verifyUserSessionFromToken } from "@/lib/auth/user-jwt";
 
 function getPublicBaseUrl(request: NextRequest): string {
   return (
@@ -112,14 +113,49 @@ export async function middleware(request: NextRequest) {
   }
 
   const userToken = request.cookies.get(USER_TOKEN_COOKIE)?.value;
+  const baseUrl = getPublicBaseUrl(request);
+  const userJwtKey = tryGetUserJwtSecretKey();
 
-  // Do not verify USER_JWT in Edge: the secret is often missing at `next build` while present at
-  // `next start`, which makes verification fail forever and loops OAuth. /api/auth/me runs on Node
-  // with the real env and validates the cookie instead.
+  /**
+   * ตรวจสอบเซสชันผู้ใช้ — ถ้ามี USER_JWT_SECRET ตอน build ใช้ jwtVerify ใน Edge (ลด fetch วนกลับ EC2)
+   * ถ้าไม่มี secret ตอน build (เช่น CI เก่า) fallback ไป /api/auth/me
+   */
+  async function loadUserGateState(): Promise<
+    | { ok: true; registrationCompleted: boolean }
+    | { ok: false; invalid: true }
+  > {
+    if (!userToken) {
+      return { ok: false, invalid: true };
+    }
+    if (userJwtKey) {
+      const v = await verifyUserSessionFromToken(userToken);
+      if (!v) {
+        return { ok: false, invalid: true };
+      }
+      return { ok: true, registrationCompleted: v.registrationCompleted };
+    }
+    try {
+      const res = await fetch(new URL("/api/auth/me", baseUrl), {
+        headers: { cookie: request.headers.get("cookie") ?? "" },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        return { ok: false, invalid: true };
+      }
+      const data = (await res.json()) as {
+        user?: { registrationCompleted?: boolean };
+      };
+      return {
+        ok: true,
+        registrationCompleted: data.user?.registrationCompleted !== false,
+      };
+    } catch {
+      return { ok: false, invalid: true };
+    }
+  }
 
   if (isRegister) {
     if (!userToken) {
-      const baseUrl = getPublicBaseUrl(request);
       const lineLogin = new URL("/api/auth/line", baseUrl);
       lineLogin.searchParams.set(
         "callbackUrl",
@@ -128,55 +164,34 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(lineLogin);
     }
 
-    try {
-      const registerState = await fetch(new URL("/api/auth/me", getPublicBaseUrl(request)), {
-        headers: { cookie: request.headers.get("cookie") ?? "" },
-        cache: "no-store",
-      });
-      if (!registerState.ok) {
-        const response = NextResponse.redirect(new URL("/api/auth/line?callbackUrl=/register", getPublicBaseUrl(request)));
-        response.cookies.delete(USER_TOKEN_COOKIE);
-        return response;
-      }
-      const data = (await registerState.json()) as {
-        ok?: boolean;
-        user?: { registrationCompleted?: boolean };
-      };
-      if (data.user?.registrationCompleted !== false) {
-        return NextResponse.redirect(new URL("/user", request.url));
-      }
-    } catch {
-      return NextResponse.next();
+    const gate = await loadUserGateState();
+    if (!gate.ok) {
+      const response = NextResponse.redirect(
+        new URL("/api/auth/line?callbackUrl=/register", baseUrl)
+      );
+      response.cookies.delete(USER_TOKEN_COOKIE);
+      return response;
+    }
+    if (gate.registrationCompleted) {
+      return NextResponse.redirect(new URL("/user", request.url));
     }
     return NextResponse.next();
   }
 
   if (needsGate) {
     if (!userToken) {
-      const baseUrl = getPublicBaseUrl(request);
       const lineLogin = new URL("/api/auth/line", baseUrl);
       lineLogin.searchParams.set("callbackUrl", new URL(pathname, baseUrl).toString());
       return NextResponse.redirect(lineLogin);
     }
-    try {
-      const authState = await fetch(new URL("/api/auth/me", getPublicBaseUrl(request)), {
-        headers: { cookie: request.headers.get("cookie") ?? "" },
-        cache: "no-store",
-      });
-      if (!authState.ok) {
-        const response = NextResponse.redirect(new URL("/api/auth/line", getPublicBaseUrl(request)));
-        response.cookies.delete(USER_TOKEN_COOKIE);
-        return response;
-      }
-      const data = (await authState.json()) as {
-        ok?: boolean;
-        user?: { registrationCompleted?: boolean };
-      };
-      if (data.user?.registrationCompleted === false) {
-        return NextResponse.redirect(new URL("/register", request.url));
-      }
-    } catch {
-      return NextResponse.next();
+    const gate = await loadUserGateState();
+    if (!gate.ok) {
+      const response = NextResponse.redirect(new URL("/api/auth/line", baseUrl));
+      response.cookies.delete(USER_TOKEN_COOKIE);
+      return response;
+    }
+    if (!gate.registrationCompleted) {
+      return NextResponse.redirect(new URL("/register", request.url));
     }
   }
 

@@ -213,7 +213,11 @@ export async function GET(request: NextRequest) {
       await User.findByIdAndUpdate(user._id, { $set: updateSet });
     }
 
-    const userToken = await signUserAccessToken(String(user._id), "user");
+    const userToken = await signUserAccessToken(
+      String(user._id),
+      "user",
+      user.registrationCompleted !== false
+    );
     const response = redirectWithCleanup(
       user.registrationCompleted === false
         ? "/register"

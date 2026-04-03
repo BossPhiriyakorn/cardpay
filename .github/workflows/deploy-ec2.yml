@@ -20,8 +20,8 @@
 #   - Reverse proxy: ส่ง Host, X-Forwarded-Proto=https, X-Forwarded-For (ถ้ามี TLS ที่ proxy)
 #   - Cloudflare: Bypass cache สำหรับ /api/* และหน้า auth ถ้ามีกฎ cache กว้าง
 #
-# Build บน Actions ไม่โหลด .env จาก repo — ถ้า `next build` ต้องการตัวแปรเฉพาะ ให้เพิ่ม GitHub Secrets
-# แล้วส่งเป็น env ในขั้น Build (ปัจจุบันโปรเจกต์นี้ build ได้โดยไม่ต้องมี secret ฝั่ง CI)
+# Build บน Actions ไม่โหลด .env จาก repo — ต้องมี secret ต่อไปนี้เพื่อให้ middleware ตรวจ JWT ผู้ใช้ได้:
+#   USER_JWT_SECRET — ค่าเดียวกับบนเซิร์ฟเวอร์ (ยาว ≥32) ถ้าไม่ตั้ง middleware จะ fallback ไป fetch /api/auth/me
 
 name: Deploy to EC2 (manual)
 
@@ -39,7 +39,7 @@ on:
       deploy_path:
         description: "พาธโฟลเดอร์แอปบน EC2 (ไม่มี / ท้าย)"
         required: true
-        default: /opt/cardpay
+        default: /home/ubuntu/cardpay
       systemd_service:
         description: "ชื่อ systemd service ที่จะ restart หลัง deploy"
         required: true
@@ -74,6 +74,8 @@ jobs:
         run: npm ci
 
       - name: Build Next.js (standalone)
+        env:
+          USER_JWT_SECRET: ${{ secrets.USER_JWT_SECRET }}
         run: npm run build
 
       - name: Assemble standalone bundle
