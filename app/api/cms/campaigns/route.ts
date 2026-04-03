@@ -7,9 +7,9 @@ import {
 /** GET — รายการแคมเปญ CMS จาก MongoDB */
 export async function GET() {
   try {
-    const { source, campaigns } = await listCmsCampaigns();
+    const { source, campaigns, loadError } = await listCmsCampaigns();
     const stats = computeCmsCampaignStats(campaigns);
-    return NextResponse.json({ ok: true, source, campaigns, stats });
+    return NextResponse.json({ ok: true, source, campaigns, stats, loadError: loadError ?? null });
   } catch (e) {
     console.error("[api/cms/campaigns]", e);
     return NextResponse.json(

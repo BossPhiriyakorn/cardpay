@@ -5,8 +5,11 @@ import {
 import { listCampaignTags } from '@/lib/cms/campaign-tags-repository';
 import CmsCampaignsClient from './CmsCampaignsClient';
 
+/** ห้าม prerender ตอน build (CI มักไม่มี MONGODB_URI) — ต้องโหลดจาก MongoDB ทุกครั้งที่เข้า CMS */
+export const dynamic = 'force-dynamic';
+
 export default async function CmsCampaignsPage() {
-  const [{ campaigns }, { tags }] = await Promise.all([
+  const [{ campaigns, loadError }, { tags }] = await Promise.all([
     listCmsCampaigns(),
     listCampaignTags(),
   ]);
@@ -18,6 +21,7 @@ export default async function CmsCampaignsPage() {
       initialCampaigns={campaigns}
       initialStats={stats}
       initialTagCount={activeTagCount}
+      loadError={loadError}
     />
   );
 }

@@ -12,6 +12,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import type { CmsCampaignRow, CmsCampaignStatus } from '@/lib/cms/types';
+import type { ListCmsCampaignsLoadError } from '@/lib/cms/campaigns-repository';
 import { useCmsAdminMe } from '@/hooks/useCmsAdminMe';
 
 const budgetFormatter = new Intl.NumberFormat('th-TH', {
@@ -37,12 +38,25 @@ type Props = {
   initialCampaigns: CmsCampaignRow[];
   initialStats: { total: number; active: number; inactive: number };
   initialTagCount: number;
+  loadError?: ListCmsCampaignsLoadError;
 };
+
+function loadErrorMessage(code: ListCmsCampaignsLoadError): string {
+  switch (code) {
+    case 'missing_mongodb_uri':
+      return 'เซิร์ฟเวอร์ไม่มี MONGODB_URI — ตรวจไฟล์ .env บน EC2 และรีสตาร์ทบริการแอป';
+    case 'database_error':
+      return 'โหลดรายการแคมเปญจาก MongoDB ไม่สำเร็จ — ตรวจการเชื่อมต่อ Atlas, ชื่อฐาน MONGODB_DB_NAME และดู log เซิร์ฟเวอร์';
+    default:
+      return 'โหลดข้อมูลไม่สำเร็จ';
+  }
+}
 
 export default function CmsCampaignsClient({
   initialCampaigns,
   initialStats,
   initialTagCount,
+  loadError,
 }: Props) {
   const { isAdmin } = useCmsAdminMe();
   const [search, setSearch] = useState('');
@@ -98,8 +112,24 @@ export default function CmsCampaignsClient({
     },
   ];
 
+  const emptyHint = loadError
+    ? null
+    : search.trim() === ''
+      ? initialCampaigns.length === 0
+        ? 'ยังไม่มีแคมเปญในระบบ — สร้างแคมเปญได้จากเมนูจัดการสปอนเซอร์ แล้วเลือกสปอนเซอร์รายนั้น'
+        : null
+      : 'ไม่พบแคมเปญที่ตรงกับคำค้น';
+
   return (
     <div className="space-y-8 md:space-y-10">
+      {loadError ? (
+        <div
+          role="alert"
+          className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-900"
+        >
+          {loadErrorMessage(loadError)}
+        </div>
+      ) : null}
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-2xl md:text-3xl font-black text-[#4a148c] tracking-tight">
@@ -247,11 +277,19 @@ export default function CmsCampaignsClient({
               </tbody>
             </table>
           </div>
-          {filtered.length === 0 && (
-            <p className="py-16 text-center text-sm font-medium text-[#6a1b9a]/55">
-              ไม่พบแคมเปญที่ตรงกับคำค้น
-            </p>
-          )}
+          {filtered.length === 0 && emptyHint ? (
+            <div className="space-y-3 py-16 text-center text-sm font-medium text-[#6a1b9a]/65">
+              <p>{emptyHint}</p>
+              {search.trim() === '' && initialCampaigns.length === 0 ? (
+                <Link
+                  href="/cms/sponsors"
+                  className="inline-flex font-black text-[#8e24aa] underline-offset-2 hover:underline"
+                >
+                  ไปจัดการสปอนเซอร์
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

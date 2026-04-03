@@ -26,15 +26,23 @@ async function mapTagIdsToBriefs(
   }));
 }
 
+export type ListCmsCampaignsLoadError = "missing_mongodb_uri" | "database_error";
+
 /**
  * รายการแคมเปญสำหรับ CMS — ดึงจาก MongoDB เท่านั้น
+ * `loadError` เมื่อไม่มี URI หรือ query ล้มเหลว (เดิมคืน [] เงียบๆ ทำให้เข้าใจผิดว่าไม่มีแคมเปญ)
  */
 export async function listCmsCampaigns(): Promise<{
   source: "database";
   campaigns: CmsCampaignRow[];
+  loadError?: ListCmsCampaignsLoadError;
 }> {
-  if (!process.env.MONGODB_URI) {
-    return { source: "database", campaigns: [] };
+  if (!process.env.MONGODB_URI?.trim()) {
+    return {
+      source: "database",
+      campaigns: [],
+      loadError: "missing_mongodb_uri",
+    };
   }
 
   try {
@@ -93,7 +101,11 @@ export async function listCmsCampaigns(): Promise<{
     return { source: "database", campaigns };
   } catch (err) {
     console.error("[cms] listCmsCampaigns:", err);
-    return { source: "database", campaigns: [] };
+    return {
+      source: "database",
+      campaigns: [],
+      loadError: "database_error",
+    };
   }
 }
 
