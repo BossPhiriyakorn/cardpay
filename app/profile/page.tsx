@@ -13,6 +13,7 @@ import {
   Landmark,
   Pencil,
   RefreshCw,
+  Share2,
   Wallet,
   UserCog,
   FileUp,
@@ -47,6 +48,15 @@ export default function ProfilePage() {
     amount: number;
     status: string;
   };
+  type ShareHistoryRow = {
+    id: string;
+    campaignId: string;
+    campaignName: string;
+    whenLabel: string;
+    shareCount: number;
+    earnedFromShare: number;
+    isCampaignSummary?: boolean;
+  };
 
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [isAddBankModalOpen, setIsAddBankModalOpen] = useState(false);
@@ -69,6 +79,7 @@ export default function ProfilePage() {
   });
   const [linkedBank, setLinkedBank] = useState<LinkedBankState | null>(null);
   const [withdrawals, setWithdrawals] = useState<WithdrawalRow[]>([]);
+  const [shareHistory, setShareHistory] = useState<ShareHistoryRow[]>([]);
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
   const [withdrawBlockMessage, setWithdrawBlockMessage] = useState<string | null>(null);
   const [withdrawAmount, setWithdrawAmount] = useState('');
@@ -99,12 +110,13 @@ export default function ProfilePage() {
       setLoadingProfile(true);
       setProfileError(null);
       try {
-        const res = await fetch('/api/user/profile', { cache: 'no-store' });
+        const res = await fetch('/api/user/profile', { cache: 'no-store', credentials: 'include' });
         const data = (await res.json()) as {
           ok?: boolean;
           profile?: ProfileState;
           linkedBank?: LinkedBankState | null;
           withdrawals?: WithdrawalRow[];
+          shareHistory?: ShareHistoryRow[];
           minWithdrawalAmount?: number;
           error?: string;
         };
@@ -118,6 +130,7 @@ export default function ProfilePage() {
         if (cancelled) return;
         setProfile(data.profile);
         setDraftProfile(data.profile);
+        setShareHistory(data.shareHistory ?? []);
         setLinkedBank(data.linkedBank ?? null);
         setWithdrawals(data.withdrawals ?? []);
         setMinWithdrawalAmount(Math.max(0, Math.floor(Number(data.minWithdrawalAmount ?? 0))));
@@ -650,6 +663,59 @@ export default function ProfilePage() {
                   <p className="text-sm font-bold text-slate-700">ยังไม่มีบัญชีที่เชื่อม</p>
                   <p className="text-xs text-slate-500 mt-1">กดปุ่ม &quot;เพิ่มบัญชี&quot; เพื่อเพิ่มข้อมูลบัญชีธนาคาร</p>
                 </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="p-5">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-slate-50 rounded-xl text-[#8e24aa]">
+                <Share2 size={22} />
+              </div>
+              <div className="text-left">
+                <p className="text-base font-semibold text-slate-800 leading-snug break-words">ประวัติการแชร์</p>
+                <p className="text-xs font-medium text-slate-400 uppercase tracking-widest">Sharing History</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-3 text-sm">
+              {loadingProfile ? (
+                <p className="text-slate-500">กำลังโหลดประวัติการแชร์...</p>
+              ) : shareHistory.length === 0 ? (
+                <p className="text-slate-500">ยังไม่มีประวัติการแชร์</p>
+              ) : (
+                shareHistory.map((row) => (
+                  <div
+                    key={row.id}
+                    className="pb-3 border-b border-slate-100 last:border-0 last:pb-0"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-bold text-slate-800 leading-snug">{row.campaignName}</p>
+                      {row.isCampaignSummary ? (
+                        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-[#6a1b9a]/80 bg-[#f3e5f5] px-2 py-0.5 rounded-full">
+                          สรุป
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {row.isCampaignSummary
+                        ? `แชร์ล่าสุด: ${row.whenLabel}`
+                        : `วันที่ ${row.whenLabel}`}
+                    </p>
+                    <p className="text-sm text-slate-600 mt-1">
+                      {row.isCampaignSummary
+                        ? `แชร์รวม ${row.shareCount.toLocaleString('th-TH')} ครั้ง`
+                        : `แชร์ ${row.shareCount.toLocaleString('th-TH')} ครั้ง`}
+                      {row.earnedFromShare > 0 ? (
+                        <span className="text-sky-700 font-bold">
+                          {' '}
+                          · รับ ฿{row.earnedFromShare.toLocaleString('th-TH')}
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                ))
               )}
             </div>
           </div>

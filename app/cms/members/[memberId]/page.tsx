@@ -415,6 +415,7 @@ export default function MemberDetailPage({ params }: Props) {
           <div>
             <p className="text-xs font-black uppercase tracking-wider text-[#6a1b9a]/70">เพื่อนที่ใช้รหัสของสมาชิก</p>
             <h2 className="text-lg font-black text-[#4a148c] mt-2">รายการเพื่อนที่สมัครผ่านการแนะนำ</h2>
+            <p className="text-xs text-[#6a1b9a]/60 mt-1">แสดงเฉพาะชื่อเพื่อดูว่ามีใครสมัครผ่านรหัสแนะนำบ้าง</p>
           </div>
 
           {member.referredFriends.length === 0 ? (
@@ -422,32 +423,13 @@ export default function MemberDetailPage({ params }: Props) {
               ยังไม่มีเพื่อนที่ใช้รหัสของสมาชิกคนนี้
             </div>
           ) : (
-            <div className="space-y-3">
+            <ul className="rounded-2xl border border-[#e1bee7] bg-[#faf5fc] divide-y divide-[#f1dff5] overflow-hidden">
               {member.referredFriends.map((friend) => (
-                <div key={friend.id} className="rounded-2xl border border-[#e1bee7] bg-[#faf5fc] p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-bold text-[#4a148c]">{friend.name || "ไม่ระบุชื่อ"}</p>
-                      <p className="text-xs text-[#6a1b9a]/70">รหัสของเพื่อน: {friend.referralCode || "-"}</p>
-                    </div>
-                    <span
-                      className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider ${
-                        friend.rewardClaimed
-                          ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
-                          : "bg-amber-100 text-amber-700 border border-amber-200"
-                      }`}
-                    >
-                      {friend.rewardClaimed ? "ได้โบนัสแล้ว" : "ยังไม่ปลดโบนัส"}
-                    </span>
-                  </div>
-                  <div className="mt-3 text-xs text-[#6a1b9a]/75 space-y-1">
-                    <p>แคมเปญที่ทำให้ได้โบนัส: {friend.rewardCampaignName || "-"}</p>
-                    <p>ยอดโบนัสที่ได้: {money.format(friend.rewardAmount)}</p>
-                    <p>วันที่ปลดโบนัส: {friend.rewardClaimedAt ? friend.rewardClaimedAt.slice(0, 16).replace("T", " ") : "-"}</p>
-                  </div>
-                </div>
+                <li key={friend.id} className="px-4 py-3 text-sm font-bold text-[#4a148c]">
+                  {friend.name?.trim() || "ไม่ระบุชื่อ"}
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </div>
       </div>

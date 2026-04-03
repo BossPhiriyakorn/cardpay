@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { NextResponse } from "next/server";
 
 import { getUserSession } from "@/lib/auth/require-user-session";
@@ -6,7 +7,24 @@ import { connectToDatabase } from "@/lib/mongodb";
 import { ensureUserReferralCode } from "@/lib/referral-code";
 import { getResolvedPlatformSettings } from "@/lib/platform-settings";
 import { isValidThaiPhoneDigits, sanitizeThaiPhoneInput } from "@/lib/thai-phone";
-import { BankAccount, User, WithdrawalRequest } from "@/models";
+import { BankAccount, Campaign, CampaignMemberStat, CampaignUserDailyStat, User, WithdrawalRequest } from "@/models";
+
+function formatDateBangkok(d: Date): string {
+  return d.toLocaleDateString("th-TH", {
+    timeZone: "Asia/Bangkok",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatDateTimeBangkok(d: Date): string {
+  return d.toLocaleString("th-TH", {
+    timeZone: "Asia/Bangkok",
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+}
 
 function mapBankStatus(status: string | undefined): "รอตรวจสอบ" | "อนุมัติแล้ว" | "ไม่อนุมัติ" {
   if (status === "verified") return "อนุมัติแล้ว";
@@ -51,10 +69,83 @@ export async function GET() {
 
     const ensuredReferralCode = await ensureUserReferralCode(userId);
     const platform = await getResolvedPlatformSettings();
+    const userOid = new mongoose.Types.ObjectId(userId);
+
+    const dailyShareRows = await CampaignUserDailyStat.find({
+      userId: userOid,
+      shareCount: { $gt: 0 },
+    })
+      .sort({ day: -1 })
+      .limit(50)
+      .select("campaignId day shareCount ownEarnedAmount")
+      .lean();
+
+    const campaignIds = [...new Set(dailyShareRows.map((r) => String(r.campaignId)))];
+    const campaigns =
+      campaignIds.length > 0
+        ? await Campaign.find({ _id: { $in: campaignIds } })
+            .select("name")
+            .lean()
+        : [];
+    const campaignNameById = new Map(campaigns.map((c) => [String(c._id), String(c.name ?? "").trim() || "แคมเปญ"]));
+
+    type ShareHistoryItem = {
+      id: string;
+      campaignId: string;
+      campaignName: string;
+      /** ข้อความวันที่แสดงใน UI */
+      whenLabel: string;
+      shareCount: number;
+      earnedFromShare: number;
+      /** แถวสรุปต่อแคมเปญเมื่อไม่มีรายวัน */
+      isCampaignSummary?: boolean;
+    };
+
+    let shareHistory: ShareHistoryItem[] = dailyShareRows.map((r) => {
+      const day = r.day instanceof Date ? r.day : new Date(String(r.day ?? ""));
+      return {
+        id: `d-${String(r.campaignId)}-${day.getTime()}`,
+        campaignId: String(r.campaignId),
+        campaignName: campaignNameById.get(String(r.campaignId)) ?? "แคมเปญ",
+        whenLabel: Number.isNaN(day.getTime()) ? "—" : formatDateBangkok(day),
+        shareCount: Number(r.shareCount ?? 0),
+        earnedFromShare: Number((r as { ownEarnedAmount?: number }).ownEarnedAmount ?? 0),
+      };
+    });
+
+    if (shareHistory.length === 0) {
+      const stats = await CampaignMemberStat.find({ userId: userOid, shareCount: { $gt: 0 } })
+        .sort({ lastSharedAt: -1 })
+        .limit(30)
+        .select("campaignId shareCount lastSharedAt ownShareEarned")
+        .lean();
+      const statCampIds = [...new Set(stats.map((s) => String(s.campaignId)))];
+      const statCampaigns =
+        statCampIds.length > 0
+          ? await Campaign.find({ _id: { $in: statCampIds } })
+              .select("name")
+              .lean()
+          : [];
+      const nameById = new Map(statCampaigns.map((c) => [String(c._id), String(c.name ?? "").trim() || "แคมเปญ"]));
+      shareHistory = stats.map((s) => {
+        const last = (s as { lastSharedAt?: Date | null }).lastSharedAt;
+        const lastD = last instanceof Date ? last : null;
+        return {
+          id: `s-${String(s.campaignId)}`,
+          campaignId: String(s.campaignId),
+          campaignName: nameById.get(String(s.campaignId)) ?? "แคมเปญ",
+          whenLabel: lastD && !Number.isNaN(lastD.getTime()) ? formatDateTimeBangkok(lastD) : "—",
+          shareCount: Number(s.shareCount ?? 0),
+          earnedFromShare: Number((s as { ownShareEarned?: number }).ownShareEarned ?? 0),
+          isCampaignSummary: true,
+        };
+      });
+    }
 
     return NextResponse.json({
       ok: true,
       minWithdrawalAmount: platform.minWithdrawalAmount,
+      shareHistory,
       profile: {
         name: String(user.name ?? ""),
         lineId: String(user.lineDisplayId ?? ""),
