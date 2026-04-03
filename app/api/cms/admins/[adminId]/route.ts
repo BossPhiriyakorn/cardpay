@@ -77,7 +77,11 @@ export async function PATCH(
     if (!isSelfUpdate && !canManageAdmins(actor.role)) {
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
-    $set.lineNotifyUserId = String(body.lineNotifyUserId ?? "").trim();
+    const uid = String(body.lineNotifyUserId ?? "").trim();
+    $set.lineNotifyUserId = uid;
+    if (!uid) {
+      $set.lineNotifyDisplayName = "";
+    }
   }
   if (Object.keys($set).length === 0) {
     return NextResponse.json({ ok: false, error: "no_fields_to_update" }, { status: 400 });

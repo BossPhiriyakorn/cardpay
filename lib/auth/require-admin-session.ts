@@ -16,6 +16,7 @@ export async function requireAdminSession(): Promise<
     lineNotifyEnabled: boolean;
     lineNotifyConnected: boolean;
     lineNotifyUserId: string;
+    lineNotifyDisplayName: string;
   } | { ok: false }
 > {
   const cookieStore = await cookies();
@@ -32,7 +33,7 @@ export async function requireAdminSession(): Promise<
 
     await connectToDatabase();
     const admin = await CmsAdmin.findOne({ username, isActive: true })
-      .select("_id username name role lineNotifyEnabled lineNotifyUserId")
+      .select("_id username name role lineNotifyEnabled lineNotifyUserId lineNotifyDisplayName")
       .lean();
     if (!admin?._id) {
       return { ok: false };
@@ -47,6 +48,9 @@ export async function requireAdminSession(): Promise<
       lineNotifyEnabled: admin.lineNotifyEnabled !== false,
       lineNotifyConnected: Boolean(String(admin.lineNotifyUserId ?? "").trim()),
       lineNotifyUserId: String(admin.lineNotifyUserId ?? "").trim(),
+      lineNotifyDisplayName: String(
+        (admin as { lineNotifyDisplayName?: string }).lineNotifyDisplayName ?? ""
+      ).trim(),
     };
   } catch {
     return { ok: false };

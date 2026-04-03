@@ -78,9 +78,11 @@ export async function GET(request: Request) {
     const profile = await verifyLineIdToken(idToken);
 
     await connectToDatabase();
+    const displayName = String(profile.name ?? "").trim();
     await CmsAdmin.findByIdAndUpdate(admin.id, {
       $set: {
         lineNotifyUserId: profile.sub,
+        lineNotifyDisplayName: displayName,
         lineNotifyEnabled: true,
       },
     });

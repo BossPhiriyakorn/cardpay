@@ -20,5 +20,6 @@ export async function GET() {
     lineNotifyEnabled: admin.lineNotifyEnabled,
     lineNotifyConnected: admin.lineNotifyConnected,
     lineNotifyUserId: admin.lineNotifyUserId,
+    lineNotifyDisplayName: admin.lineNotifyDisplayName,
   });
 }

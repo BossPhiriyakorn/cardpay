@@ -150,9 +150,11 @@ export async function GET(request: NextRequest) {
         return redirectWithCleanup("/cms/profile?lineConnect=duplicate", request);
       }
 
+      const lineDisplay = String(profile.displayName ?? "").trim();
       await CmsAdmin.findByIdAndUpdate(adminSession.id, {
         $set: {
           lineNotifyUserId: lineUid,
+          lineNotifyDisplayName: lineDisplay,
           lineNotifyEnabled: true,
         },
       });

@@ -26,6 +26,8 @@ const CmsAdminSchema = new Schema(
       index: true,
     },
     lineNotifyUserId: { type: String, default: "", trim: true, index: true },
+    /** ชื่อแสดงจาก LINE ตอนเชื่อมแจ้งเตือน (ดึงจาก profile / id_token) */
+    lineNotifyDisplayName: { type: String, default: "", trim: true },
     lineNotifyEnabled: { type: Boolean, default: false, index: true },
     isActive: { type: Boolean, default: true, index: true },
   },
