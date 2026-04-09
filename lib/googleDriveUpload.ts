@@ -9,12 +9,16 @@ import { getGoogleDriveClient, getGoogleDriveFolderId, type GoogleDriveFolderTyp
 export {
   driveImageThumbnailUrl,
   driveImageViewUrl,
+  isValidGoogleDriveFileId,
   parseDriveFileIdFromViewUrl,
   parseGoogleDriveFileId,
   resolveDriveImageSrcForPreview,
 } from "@/lib/drive-image-url";
 
-/** โฟลเดอร์ย่อยชื่อ = sponsorId (ObjectId) ภายใต้ root ที่ตั้งใน env */
+/**
+ * โฟลเดอร์ย่อยภายใต้ root (JSON / รูป) — ชื่อโฟลเดอร์ = `sponsorId` (Mongo ObjectId เป็นสตริง)
+ * เพื่อแยกไฟล์ตามสปอนเซอร์และค้นหาใน Drive ได้ตรงกับรหัสในระบบ
+ */
 export async function getOrCreateSponsorSubfolder(
   folderType: GoogleDriveFolderType,
   sponsorId: string
@@ -93,13 +97,24 @@ export async function updateDriveFileContent(
   });
 }
 
+function isDriveFileNotFoundError(e: unknown): boolean {
+  const x = e as { code?: number; response?: { status?: number }; message?: string };
+  if (x?.code === 404) return true;
+  if (x?.response?.status === 404) return true;
+  if (typeof x?.message === "string" && /not found/i.test(x.message)) return true;
+  return false;
+}
+
 export async function deleteDriveFileIfPossible(fileId: string): Promise<void> {
   if (!fileId) return;
   try {
     const drive = getGoogleDriveClient();
     await drive.files.delete({ fileId, supportsAllDrives: true });
-  } catch {
-    /* ignore */
+  } catch (e) {
+    if (isDriveFileNotFoundError(e)) {
+      return;
+    }
+    console.warn("[googleDriveUpload] deleteDriveFileIfPossible failed", fileId, e);
   }
 }
 

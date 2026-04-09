@@ -42,10 +42,12 @@ export async function GET() {
 
       const totalBudget = Number((doc as { totalBudget?: unknown }).totalBudget ?? 0);
       const rewardPerShare = Number((doc as { rewardPerShare?: unknown }).rewardPerShare ?? 0);
+      const cardDesc = String((doc as { description?: unknown }).description ?? "");
+      const feedDesc = String((doc as { appFeedDescription?: unknown }).appFeedDescription ?? "").trim();
       return {
         id: String(doc._id),
         title: String((doc as { name?: unknown }).name ?? ""),
-        description: String((doc as { description?: unknown }).description ?? ""),
+        description: feedDesc || cardDesc,
         totalBudget,
         usedBudget: Number((doc as { usedBudget?: unknown }).usedBudget ?? 0),
         reward: rewardPerShare,

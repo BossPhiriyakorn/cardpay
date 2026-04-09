@@ -55,7 +55,7 @@ function CmsShareTooltip({
   const row = payload[0].payload;
   return (
     <div className="rounded-xl border border-white/20 bg-[#1a1028] px-3 py-2.5 shadow-xl">
-      <p className="text-[11px] text-zinc-300 leading-snug">{row.dateFull}</p>
+      <p className="text-[11px] text-zinc-300 leading-tight">{row.dateCompact}</p>
       <p className="mt-1.5 text-sm font-bold text-white">
         แชร์{" "}
         <span className="tabular-nums text-[#f472b6]">

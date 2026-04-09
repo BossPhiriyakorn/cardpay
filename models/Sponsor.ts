@@ -32,6 +32,12 @@ const SponsorSchema = new Schema(
     portalPasswordHash: { type: String, select: false },
     /** อีเมลติดต่อจากฟอร์มสมัครพอร์ทัล (ไม่บังคับ) */
     contactEmail: { type: String, default: "", trim: true },
+    /** งบโฆษณารวมของสปอนเซอร์ (ใช้ร่วมทุกแคมเปญ) — 0 = ใช้โหมดงบต่อแคมเปญเดิม */
+    advertisingTotalBudget: { type: Number, default: 0, min: 0 },
+    /** งบที่ใช้ไปแล้วจากกลุ่มสปอนเซอร์ */
+    advertisingUsedBudget: { type: Number, default: 0, min: 0 },
+    /** วันเวลาที่เติมงบโฆษณารวมล่าสุด (CMS) */
+    advertisingBudgetToppedUpAt: { type: Date, default: null },
   },
   { timestamps: true, versionKey: false }
 );

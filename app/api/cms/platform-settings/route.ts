@@ -40,6 +40,9 @@ export async function PATCH(request: Request) {
     privacyPolicyText?: string;
     termsOfServiceText?: string;
     minWithdrawalAmount?: number;
+    campaignRewardPerShare?: number;
+    campaignMaxEarnPerUserPerDay?: number;
+    sponsorPortalSupportUrl?: string;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -53,9 +56,15 @@ export async function PATCH(request: Request) {
     0,
     Math.floor(Number(body.minWithdrawalAmount ?? 0))
   );
+  const campaignRewardPerShare = Math.max(0, Number(body.campaignRewardPerShare ?? 0));
+  const campaignMaxEarnPerUserPerDay = Math.max(0, Number(body.campaignMaxEarnPerUserPerDay ?? 0));
+  const sponsorPortalSupportUrl = String(body.sponsorPortalSupportUrl ?? "").trim().slice(0, 2048);
 
   if (!Number.isFinite(minWithdrawalAmount)) {
     return NextResponse.json({ ok: false, error: "invalid_min_withdrawal" }, { status: 400 });
+  }
+  if (!Number.isFinite(campaignRewardPerShare) || !Number.isFinite(campaignMaxEarnPerUserPerDay)) {
+    return NextResponse.json({ ok: false, error: "invalid_campaign_rules" }, { status: 400 });
   }
 
   try {
@@ -63,6 +72,9 @@ export async function PATCH(request: Request) {
       privacyPolicyText,
       termsOfServiceText,
       minWithdrawalAmount,
+      campaignRewardPerShare,
+      campaignMaxEarnPerUserPerDay,
+      sponsorPortalSupportUrl,
     });
     const row = await getPlatformSettingsForCmsEdit();
     return NextResponse.json({ ok: true, settings: row });

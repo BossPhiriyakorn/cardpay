@@ -7,6 +7,7 @@ import {
   buildChartForPeriod,
   type SponsorDashboardChartPeriod,
 } from "@/lib/sponsor/dashboard-chart";
+import { getSponsorPortalSupportContactUrl } from "@/lib/platform-settings";
 import Campaign from "@/models/Campaign";
 import Sponsor from "@/models/Sponsor";
 
@@ -29,7 +30,9 @@ export async function GET(request: Request) {
 
   try {
     await connectToDatabase();
-    const sponsor = await Sponsor.findById(auth.sponsorId).select("companyName status").lean();
+    const sponsor = await Sponsor.findById(auth.sponsorId)
+      .select("companyName status advertisingTotalBudget advertisingUsedBudget")
+      .lean();
 
     if (!sponsor) {
       return NextResponse.json({ ok: false, error: "sponsor_not_found" }, { status: 404 });
@@ -40,19 +43,29 @@ export async function GET(request: Request) {
 
     const campaignDocs = await Campaign.find({ sponsorId: sponsor._id })
       .sort({ updatedAt: -1 })
-      .select("name currentShares totalBudget usedBudget")
+      .select("name currentShares usedBudget status")
       .lean();
 
+    const advTotal = Math.max(
+      0,
+      Number((sponsor as { advertisingTotalBudget?: number }).advertisingTotalBudget ?? 0)
+    );
+    const advUsed = Math.max(
+      0,
+      Number((sponsor as { advertisingUsedBudget?: number }).advertisingUsedBudget ?? 0)
+    );
+
     const campaigns = campaignDocs.map((c) => {
-      const total = Number(c.totalBudget ?? 0);
       const used = Number(c.usedBudget ?? 0);
+      const st = String((c as { status?: string }).status ?? "active");
+      const status =
+        st === "paused" || st === "completed" || st === "archived" ? st : "active";
       return {
         id: String(c._id),
         name: String(c.name ?? ""),
         currentShares: Number(c.currentShares ?? 0),
-        remainingBudget: Math.max(0, total - used),
-        totalBudget: total,
         usedBudget: used,
+        status,
       };
     });
 
@@ -65,16 +78,20 @@ export async function GET(request: Request) {
     const period = parsePeriod(url.searchParams.get("period"));
     const requestedCampaignId = url.searchParams.get("campaignId")?.trim() ?? "";
 
-    const allowedIds = new Set(campaigns.map((c) => c.id));
+    /** กราฟ/ตัวเลือกแคมเปญในแดชบอร์ด — เฉพาะที่เปิดใช้งาน (active) */
+    const activeCampaigns = campaigns.filter((c) => c.status === "active");
+    const allowedActiveIds = new Set(activeCampaigns.map((c) => c.id));
     const selectedCampaignId =
-      requestedCampaignId && allowedIds.has(requestedCampaignId)
+      requestedCampaignId && allowedActiveIds.has(requestedCampaignId)
         ? requestedCampaignId
-        : campaigns[0]?.id ?? null;
+        : activeCampaigns[0]?.id ?? null;
 
     const points =
       selectedCampaignId && mongoose.Types.ObjectId.isValid(selectedCampaignId)
         ? await buildChartForPeriod(selectedCampaignId, period)
         : [];
+
+    const supportContactUrl = await getSponsorPortalSupportContactUrl();
 
     return NextResponse.json({
       ok: true,
@@ -84,6 +101,10 @@ export async function GET(request: Request) {
       totalSharesAllCampaigns,
       selectedCampaignId,
       chart: { period, points },
+      advertisingTotalBudget: advTotal,
+      advertisingUsedBudget: advUsed,
+      advertisingRemainingBudget: Math.max(0, advTotal - advUsed),
+      supportContactUrl,
     });
   } catch (e) {
     console.error("[api/sponsor/dashboard]", e);

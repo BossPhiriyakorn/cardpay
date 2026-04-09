@@ -17,14 +17,18 @@ const CampaignSchema = new Schema(
     },
     name: { type: String, required: true, trim: true },
     description: { type: String, default: "" },
+    /** คำอธิบายสำหรับรายการแคมเปญ / หน้าแรกในแอป — คนละส่วนกับ description บนการ์ด Flex */
+    appFeedDescription: { type: String, default: "", maxlength: 800, trim: true },
     totalBudget: { type: Number, required: true, min: 0 },
     usedBudget: { type: Number, default: 0, min: 0 },
     status: {
       type: String,
-      enum: ["active", "paused", "completed"],
+      enum: ["active", "paused", "completed", "archived"],
       default: "active",
       index: true,
     },
+    /** ตั้งเมื่อสปอนเซอร์ลบแคมเปญ (soft archive) — สถิติใน Mongo ยังอยู่; ไฟล์ Drive ถูกลบและเคลียร์อ้างอิง */
+    archivedAt: { type: Date, default: null, index: true },
     /** ค่าตอบแทนต่อการแชร์ (บาท) — ตรงกับการ์ดแคมเปญ */
     rewardPerShare: { type: Number, default: 0, min: 0 },
     /** เพดานรายได้สะสมสูงสุดต่อผู้ใช้ในแคมเปญนี้ (บาท) */
@@ -41,6 +45,14 @@ const CampaignSchema = new Schema(
      * จำกัดความยาวตาม LINE (สูงสุด 400 ตัวอักษร)
      */
     shareAltText: { type: String, default: "", maxlength: 400 },
+    /** หัวข้อบนการ์ด (เมื่อสร้าง Flex อัตโนมัติ) */
+    shareHeadline: { type: String, default: "", trim: true },
+    /** เนื้อหาบนการ์ด */
+    shareBody: { type: String, default: "", trim: true },
+    /** URI ปุ่มโทร เช่น tel:0812345678 หรือ https://line.me/ti/p/~xxx */
+    contactPhoneUri: { type: String, default: "", trim: true },
+    /** URI ปุ่มช่องทางติดต่อ */
+    contactChannelUri: { type: String, default: "", trim: true },
     isPopular: { type: Boolean, default: false },
     /** แท็กหมวด (อ้างอิง `campaigntags`) — ใช้ฟิลเตอร์หน้าแคมเปญทั้งหมด */
     tagIds: {

@@ -13,17 +13,22 @@ export async function GET() {
   try {
     await connectToDatabase();
     const sponsor = await Sponsor.findById(session.sponsorId)
-      .select("companyName status portalUsername")
+      .select("companyName status portalUsername advertisingTotalBudget")
       .lean();
     if (!sponsor || sponsor.status !== "active") {
       return NextResponse.json({ ok: false, authenticated: false }, { status: 401 });
     }
+    const advTotal = Math.max(
+      0,
+      Number((sponsor as { advertisingTotalBudget?: number }).advertisingTotalBudget ?? 0)
+    );
     return NextResponse.json({
       ok: true,
       authenticated: true,
       sponsorId: String(sponsor._id),
       companyName: String(sponsor.companyName ?? ""),
       username: String(sponsor.portalUsername ?? ""),
+      advertisingTotalBudget: advTotal,
     });
   } catch (e) {
     console.error("[sponsor/auth/me]", e);

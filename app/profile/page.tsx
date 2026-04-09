@@ -669,8 +669,8 @@ export default function ProfilePage() {
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-5">
-            <div className="flex items-center gap-4">
+          <div className="p-5 flex flex-col min-h-0">
+            <div className="flex items-center gap-4 shrink-0">
               <div className="p-3 bg-slate-50 rounded-xl text-[#8e24aa]">
                 <Share2 size={22} />
               </div>
@@ -679,7 +679,10 @@ export default function ProfilePage() {
                 <p className="text-xs font-medium text-slate-400 uppercase tracking-widest">Sharing History</p>
               </div>
             </div>
-            <div className="mt-4 space-y-3 text-sm">
+            <div
+              className="mt-4 pt-4 border-t border-slate-100 space-y-3 text-sm max-h-[min(50vh,22rem)] overflow-y-auto overscroll-y-contain pr-1 -mr-0.5 scroll-smooth [scrollbar-gutter:stable]"
+              aria-label="รายการประวัติการแชร์"
+            >
               {loadingProfile ? (
                 <p className="text-slate-500">กำลังโหลดประวัติการแชร์...</p>
               ) : shareHistory.length === 0 ? (

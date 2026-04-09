@@ -78,6 +78,7 @@ function getCmsHeaderSectionName(
   searchParams: URLSearchParams
 ): string {
   if (pathname.startsWith("/cms/campaigns/tags")) return "จัดการแท็กแคมเปญ";
+  if (pathname.startsWith("/cms/campaigns/templates")) return "เทมเพลต Flex แคมเปญ";
   if (isCmsCampaignsNavPath(pathname, searchParams)) return "จัดการแคมเปญ";
   if (isCmsSponsorsNavPath(pathname, searchParams)) return "จัดการสปอนเซอร์";
   const item = sidebarItems.find(

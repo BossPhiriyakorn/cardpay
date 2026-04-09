@@ -17,6 +17,8 @@ type SponsorRow = {
   status: "Active" | "Inactive";
   activeCampaigns: number;
   totalBudget: number;
+  advertisingTotalBudget?: number;
+  advertisingUsedBudget?: number;
 };
 
 const budgetFormatter = new Intl.NumberFormat("th-TH", {
@@ -94,10 +96,10 @@ export default function SponsorsPage() {
       ),
     [sponsorRows]
   );
-  const totalBudgetAllCampaigns = useMemo(
+  const totalAdvertisingBudgetAllSponsors = useMemo(
     () =>
       sponsorRows.reduce(
-        (sum, row) => sum + Number(row.totalBudget ?? 0),
+        (sum, row) => sum + Number(row.advertisingTotalBudget ?? 0),
         0
       ),
     [sponsorRows]
@@ -153,18 +155,20 @@ export default function SponsorsPage() {
             <p className="mt-2 text-2xl md:text-3xl font-black text-violet-900">
               {totalCampaignsCount.toLocaleString("th-TH")}
             </p>
-            <p className="text-[11px] md:text-xs text-violet-700 mt-1">จำนวนแคมเปญรวมของทุกสปอนเซอร์</p>
+            <p className="text-[11px] md:text-xs text-violet-700 mt-1">
+              เฉพาะแคมเปญที่สถานะเปิดใช้งาน (active) ของทุกสปอนเซอร์
+            </p>
           </div>
 
           <div className="rounded-2xl border border-emerald-300/60 bg-emerald-50 p-4 md:p-5 shadow-sm">
             <p className="text-[11px] md:text-xs font-black text-emerald-800 uppercase tracking-wider">
-              ยอดรวมทั้งหมด
+              งบโฆษณารวม (สปอนเซอร์)
             </p>
             <p className="mt-2 text-2xl md:text-3xl font-black text-emerald-900">
-              {budgetFormatter.format(totalBudgetAllCampaigns)}
+              {budgetFormatter.format(totalAdvertisingBudgetAllSponsors)}
             </p>
             <p className="text-[11px] md:text-xs text-emerald-700 mt-1">
-              รวมงบทุกแคมเปญจากการเปิดแคมเปญให้ลูกค้า
+              ผลรวมงบที่กำหนดระดับสปอนเซอร์ (ไม่แยกตามแคมเปญ)
             </p>
           </div>
         </div>
@@ -209,7 +213,7 @@ export default function SponsorsPage() {
               <tr>
                 <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-[#6a1b9a]/85">Client / สปอนเซอร์</th>
                 <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-[#6a1b9a]/85">Active Campaigns</th>
-                <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-[#6a1b9a]/85">Total Budget</th>
+                <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-[#6a1b9a]/85">งบรวมสปอนเซอร์</th>
                 <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-[#6a1b9a]/85">Status</th>
                 <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-[#6a1b9a]/85 text-right">Actions</th>
               </tr>
@@ -232,7 +236,12 @@ export default function SponsorsPage() {
                     {sponsor.activeCampaigns ?? 0} แคมเปญ
                   </td>
                   <td className="px-6 py-4 text-sm text-[#4a148c]/90">
-                    {budgetFormatter.format(sponsor.totalBudget ?? 0)}
+                    <span className="font-bold tabular-nums">
+                      {budgetFormatter.format(sponsor.advertisingTotalBudget ?? 0)}
+                    </span>
+                    <span className="block text-[11px] text-[#6a1b9a]/60 font-medium mt-0.5 tabular-nums">
+                      ใช้แล้ว {budgetFormatter.format(sponsor.advertisingUsedBudget ?? 0)}
+                    </span>
                   </td>
                   <td className="px-6 py-4">
                     <span

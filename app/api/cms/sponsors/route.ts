@@ -40,7 +40,9 @@ export async function GET() {
     await connectToDatabase();
 
     const sponsors = await Sponsor.find({})
-      .select("userId companyName status portalUsername")
+      .select(
+        "userId companyName status portalUsername advertisingTotalBudget advertisingUsedBudget advertisingBudgetToppedUpAt"
+      )
       .lean();
     const sponsorIds = sponsors.map((s) => s._id);
 
@@ -57,23 +59,30 @@ export async function GET() {
       userRows.map((u) => [String(u._id), u as LeanUserLine])
     );
 
-    const campaignAgg = await Campaign.aggregate<{
-      _id: unknown;
-      campaignCount: number;
-      totalBudget: number;
+    const [facetRow] = await Campaign.aggregate<{
+      bySponsorBudget: { _id: unknown; totalBudget: number }[];
+      bySponsorActiveCount: { _id: unknown; campaignCount: number }[];
     }>([
       { $match: { sponsorId: { $in: sponsorIds } } },
       {
-        $group: {
-          _id: "$sponsorId",
-          campaignCount: { $sum: 1 },
-          totalBudget: { $sum: "$totalBudget" },
+        $facet: {
+          bySponsorBudget: [
+            { $group: { _id: "$sponsorId", totalBudget: { $sum: "$totalBudget" } } },
+          ],
+          bySponsorActiveCount: [
+            { $match: { status: "active" } },
+            { $group: { _id: "$sponsorId", campaignCount: { $sum: 1 } } },
+          ],
         },
       },
     ]);
 
-    const bySponsorId = new Map(
-      campaignAgg.map((x) => [String(x._id), { campaignCount: x.campaignCount, totalBudget: x.totalBudget }])
+    const row = facetRow ?? { bySponsorBudget: [], bySponsorActiveCount: [] };
+    const budgetBySponsorId = new Map(
+      row.bySponsorBudget.map((x) => [String(x._id), x.totalBudget])
+    );
+    const activeCountBySponsorId = new Map(
+      row.bySponsorActiveCount.map((x) => [String(x._id), x.campaignCount])
     );
 
     return NextResponse.json({
@@ -89,8 +98,20 @@ export async function GET() {
           userId: s.userId ? String(s.userId) : "",
           clientName: String(s.companyName ?? ""),
           status: String(s.status ?? "inactive") === "active" ? "Active" : "Inactive",
-          activeCampaigns: bySponsorId.get(String(s._id))?.campaignCount ?? 0,
-          totalBudget: bySponsorId.get(String(s._id))?.totalBudget ?? 0,
+          activeCampaigns: activeCountBySponsorId.get(String(s._id)) ?? 0,
+          totalBudget: budgetBySponsorId.get(String(s._id)) ?? 0,
+          advertisingTotalBudget: Math.max(
+            0,
+            Number((s as { advertisingTotalBudget?: number }).advertisingTotalBudget ?? 0)
+          ),
+          advertisingUsedBudget: Math.max(
+            0,
+            Number((s as { advertisingUsedBudget?: number }).advertisingUsedBudget ?? 0)
+          ),
+          advertisingBudgetToppedUpAt: (() => {
+            const d = (s as { advertisingBudgetToppedUpAt?: Date | string | null }).advertisingBudgetToppedUpAt;
+            return d ? new Date(d).toISOString() : null;
+          })(),
           signupLoginId,
           signupLoginKind,
         };

@@ -3,7 +3,6 @@ import mongoose from "mongoose";
 
 import { requireAdminSession } from "@/lib/auth/require-admin-session";
 import { connectToDatabase } from "@/lib/mongodb";
-import { shareQuotaFromBudget } from "@/lib/share-quota";
 import {
   buildChartForPeriod,
   type SponsorDashboardChartPeriod,
@@ -63,15 +62,12 @@ export async function GET(request: Request, { params }: Params) {
       _id: unknown;
       sponsorId: unknown;
       name: string;
-      totalBudget: number;
       usedBudget?: number;
       status: string;
       currentShares?: number;
-      rewardPerShare?: number;
+      maxRewardPerUser?: number;
+      maxRewardPerUserPerDay?: number;
     };
-
-    const rewardPerShare = Number(c.rewardPerShare ?? 0);
-    const maxSharesFromBudget = shareQuotaFromBudget(c.totalBudget, rewardPerShare);
 
     const stats = await CampaignMemberStat.find({
       campaignId: new mongoose.Types.ObjectId(campaignId),
@@ -124,12 +120,11 @@ export async function GET(request: Request, { params }: Params) {
         sponsorId: String(c.sponsorId),
         sponsorName,
         name: c.name,
-        totalBudget: c.totalBudget,
         usedBudget: c.usedBudget ?? 0,
         status: c.status,
         currentShares,
-        rewardPerShare,
-        maxSharesFromBudget,
+        maxRewardPerUser: Math.max(0, Number(c.maxRewardPerUser ?? 0)),
+        maxRewardPerUserPerDay: Math.max(0, Number(c.maxRewardPerUserPerDay ?? 0)),
       },
       summary: {
         uniqueSharersInTable: sharers.length,

@@ -11,7 +11,12 @@ import {
 import { usePathname, useSearchParams } from "next/navigation";
 import liff from "@line/liff";
 
-import { normalizeFlexForShare, type FlexShareMessage } from "@/lib/flexMessage";
+import {
+  assertFlexShareMessageReady,
+  buildFlexShareMessageForLiff,
+  normalizeFlexForShare,
+  type FlexShareMessage,
+} from "@/lib/flexMessage";
 import { buildCampaignShareLiffUrl } from "@/lib/liffShare";
 import {
   clearPendingShareCampaign,
@@ -97,6 +102,13 @@ type ShareWarningDialog = {
   body: string;
 } | null;
 
+/** LIFF คืน { status: 'success' } เมื่อส่งสำเร็จ (บางเวอร์ชันอาจคืน true) */
+function isShareTargetPickerSuccess(result: unknown): boolean {
+  if (result === true) return true;
+  if (result == null || typeof result !== "object") return false;
+  return (result as { status?: string }).status === "success";
+}
+
 function mapRecordShareWarning(error?: string, message?: string): ShareWarningDialog {
   switch (error) {
     case "campaign_user_daily_reward_limit_reached":
@@ -118,6 +130,11 @@ function mapRecordShareWarning(error?: string, message?: string): ShareWarningDi
       return {
         title: "งบแคมเปญไม่พอ",
         body: "งบของแคมเปญนี้ถูกใช้ครบหรือเหลือไม่พอสำหรับการจ่ายรางวัลแล้ว",
+      };
+    case "sponsor_budget_not_configured":
+      return {
+        title: "ยังไม่ได้ตั้งงบสปอนเซอร์",
+        body: "สปอนเซอร์ต้องตั้งงบโฆษณารวมในระบบก่อน จึงจะจ่ายรางวัลจากการแชร์ได้ — ติดต่อผู้ดูแล",
       };
     case "inactive":
       return {
@@ -158,6 +175,21 @@ async function precheckShareEligibility(campaignId: string): Promise<ShareWarnin
   return mapRecordShareWarning(payload.error, payload.message);
 }
 
+/** สรุปข้อมูลสำคัญจาก Flex message เพื่อแสดงใน UI สำหรับ debug */
+function summarizeFlexMessage(msg: FlexShareMessage): string {
+  try {
+    const contents = msg.contents as Record<string, unknown> | null;
+    const hero = contents?.hero as Record<string, unknown> | undefined;
+    const heroUrl = typeof hero?.url === "string" ? hero.url.slice(0, 60) : "(ไม่มีรูป)";
+    const footer = contents?.footer as Record<string, unknown> | undefined;
+    const footerContents = footer?.contents;
+    const buttons = Array.isArray(footerContents) ? (footerContents as unknown[]).length : "?";
+    return `altText: ${msg.altText} | img: ${heroUrl}... | buttons: ${buttons}`;
+  } catch {
+    return "(สรุปไม่ได้)";
+  }
+}
+
 export function ShareContentInner({
   campaignId,
   templateIndex,
@@ -168,6 +200,8 @@ export function ShareContentInner({
   const [phase, setPhase] = useState<Phase>("loading");
   const [message, setMessage] = useState<string>("");
   const [flexMessage, setFlexMessage] = useState<FlexShareMessage | null>(null);
+  const [flexSummary, setFlexSummary] = useState<string>("");
+  const [showDebugJson, setShowDebugJson] = useState(false);
   const [resolvedLiffId, setResolvedLiffId] = useState<string | null>(null);
   const [shareEndpointIncludesShare, setShareEndpointIncludesShare] =
     useState<boolean>(false);
@@ -196,10 +230,42 @@ export function ShareContentInner({
           );
           return;
         }
+
+        try {
+          assertFlexShareMessageReady(msg);
+        } catch (ve) {
+          setPhase("error");
+          setMessage(ve instanceof Error ? ve.message : String(ve));
+          return;
+        }
+
+        // Pre-warm: ให้ proxy route compile + cache รูปก่อนที่ LINE จะมาดึง
+        try {
+          const c = msg.contents as Record<string, unknown> | null;
+          const heroUrl = (c?.hero as Record<string, unknown> | undefined)?.url;
+          if (typeof heroUrl === "string" && heroUrl.includes("/api/drive-image/")) {
+            await fetch(heroUrl, { method: "HEAD" }).catch(() => {});
+          }
+        } catch { /* ไม่บล็อก share ถ้า pre-warm ล้ม */ }
+
+        console.log("[share] altText:", msg.altText);
+        console.log("[share] payload:", JSON.stringify(msg));
+
+        /**
+         * ส่งแบบเดียวกับ line_flex_tem Share.jsx:
+         * สร้าง object ใหม่แค่ { type, altText, contents: {...} } แล้วส่งตรง
+         * ไม่ walk/coerce/deep-clone ซ้ำ — ลดโอกาส LINE silent-reject
+         */
+        const contents = msg.contents as Record<string, unknown>;
+        const toSend = {
+          type: "flex" as const,
+          altText: msg.altText,
+          contents: { ...contents },
+        };
         const result = await liff.shareTargetPicker([
-          msg as Parameters<typeof liff.shareTargetPicker>[0][number],
+          toSend as Parameters<typeof liff.shareTargetPicker>[0][number],
         ]);
-        if (result) {
+        if (isShareTargetPickerSuccess(result)) {
           clearPendingShareCampaign();
           try {
             const idToken = await liff.getIDToken();
@@ -221,6 +287,11 @@ export function ShareContentInner({
                 console.warn("[record-share]", rec.status, j);
                 setWarningDialog(mapRecordShareWarning(j.error, j.message));
               }
+            } else {
+              setWarningDialog({
+                title: "ยังไม่ได้บันทึกรางวัล",
+                body: "แชร์สำเร็จแล้ว แต่ระบบไม่ได้รับ LINE token จึงยังไม่บันทึกรางวัล — ลองปิดแล้วเปิดหน้านี้จากเมนูในแอปอีกครั้ง หรือล็อกอินใหม่แล้วแชร์ซ้ำ",
+              });
             }
           } catch (recErr) {
             console.warn("[record-share] request failed", recErr);
@@ -309,14 +380,16 @@ export function ShareContentInner({
         }
 
         const idx = Number.isNaN(templateIndex) ? 1 : templateIndex;
-        const msg = normalizeFlexForShare(
+        const normalized = normalizeFlexForShare(
           flexData.payload,
           idx,
           flexData.shareAltText
         );
+        const msg = buildFlexShareMessageForLiff(normalized);
         if (cancelled) return;
 
         setFlexMessage(msg);
+        setFlexSummary(summarizeFlexMessage(msg));
         await runShare(msg);
       } catch (e) {
         if (cancelled) return;
@@ -340,9 +413,29 @@ export function ShareContentInner({
         </p>
 
         {campaignId ? (
-          <p className="text-[11px] text-black/40 text-center break-all mb-4">
+          <p className="text-[11px] text-black/40 text-center break-all mb-2">
             campaignId: {campaignId}
           </p>
+        ) : null}
+
+        {flexSummary ? (
+          <div className="mb-4">
+            <p className="text-[10px] text-black/30 text-center break-all leading-relaxed">
+              {flexSummary}
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowDebugJson((v) => !v)}
+              className="mt-1 block mx-auto text-[10px] text-blue-500 underline"
+            >
+              {showDebugJson ? "ซ่อน JSON" : "ดู JSON"}
+            </button>
+            {showDebugJson && flexMessage && (
+              <pre className="mt-2 max-h-48 overflow-auto rounded bg-gray-100 p-2 text-[9px] text-black/60 break-all whitespace-pre-wrap">
+                {JSON.stringify(flexMessage, null, 2)}
+              </pre>
+            )}
+          </div>
         ) : null}
 
         {phase === "loading" && (

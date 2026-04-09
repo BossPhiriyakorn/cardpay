@@ -15,6 +15,7 @@ function statusForCode(code: string): number {
     case "inactive":
     case "quota_exhausted":
     case "budget_exhausted":
+    case "sponsor_budget_not_configured":
     case "campaign_user_reward_limit_reached":
     case "campaign_user_daily_reward_limit_reached":
       return 409;

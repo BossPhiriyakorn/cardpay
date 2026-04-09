@@ -15,12 +15,11 @@ type CampaignSummary = {
   sponsorId: string;
   sponsorName: string;
   name: string;
-  totalBudget: number;
   usedBudget: number;
   status: string;
   currentShares: number;
-  rewardPerShare: number;
-  maxSharesFromBudget: number;
+  maxRewardPerUser: number;
+  maxRewardPerUserPerDay: number;
 };
 
 type SharerRow = {
@@ -146,8 +145,6 @@ function CampaignAnalyticsContent({ params }: Props) {
     );
   }
 
-  const budgetLeft = Math.max(campaign.totalBudget - campaign.usedBudget, 0);
-
   return (
     <div className="space-y-6 md:space-y-8">
       <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-4">
@@ -190,7 +187,7 @@ function CampaignAnalyticsContent({ params }: Props) {
           รายละเอียดแคมเปญ
         </h1>
         <p className="mt-1 text-xs font-bold uppercase tracking-widest text-zinc-600">
-          สรุปงบ การแชร์ และผู้เข้าร่วม
+          สรุปการแชร์ เพดานต่อคน และยอดจ่ายผ่านแคมเปญนี้
         </p>
         <p className="mt-2 text-lg font-bold text-black">{campaign.name}</p>
         <p className="text-sm text-zinc-800 mt-1">
@@ -199,58 +196,52 @@ function CampaignAnalyticsContent({ params }: Props) {
         <p className="text-xs text-zinc-600 mt-1 font-mono">ID: {campaign.id}</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4">
         <div className="bg-[#241335]/70 border border-white/10 rounded-3xl p-5 text-zinc-100">
-          <p className="text-xs text-zinc-400 uppercase tracking-widest font-black">งบรวม</p>
+          <p className="text-xs text-zinc-400 uppercase tracking-widest font-black">
+            จำนวนแชร์สะสม
+          </p>
           <p className="text-2xl font-black text-white mt-2 tabular-nums">
-            {currencyFormatter.format(campaign.totalBudget)}
+            {campaign.currentShares.toLocaleString("th-TH")}
           </p>
         </div>
         <div className="bg-[#241335]/70 border border-white/10 rounded-3xl p-5 text-zinc-100">
-          <p className="text-xs text-zinc-400 uppercase tracking-widest font-black">ใช้ไปแล้ว</p>
+          <p className="text-xs text-zinc-400 uppercase tracking-widest font-black">
+            ยอดใช้จ่ายในแคมเปญ (สะสม)
+          </p>
           <p className="text-2xl font-black text-[#f472b6] mt-2 tabular-nums">
             {currencyFormatter.format(campaign.usedBudget)}
           </p>
         </div>
         <div className="bg-[#241335]/70 border border-white/10 rounded-3xl p-5 text-zinc-100">
-          <p className="text-xs text-zinc-400 uppercase tracking-widest font-black">งบคงเหลือ</p>
-          <p className="text-2xl font-black text-emerald-300 mt-2 tabular-nums">
-            {currencyFormatter.format(budgetLeft)}
+          <p className="text-xs text-zinc-400 uppercase tracking-widest font-black">
+            เพดานต่อคนทั้งแคมเปญ
+          </p>
+          <p className="text-2xl font-black text-white mt-2 tabular-nums">
+            {campaign.maxRewardPerUser > 0
+              ? currencyFormatter.format(campaign.maxRewardPerUser)
+              : "ไม่จำกัด"}
+          </p>
+        </div>
+        <div className="bg-[#241335]/70 border border-white/10 rounded-3xl p-5 text-zinc-100">
+          <p className="text-xs text-zinc-400 uppercase tracking-widest font-black">
+            เพดานต่อคนต่อวัน
+          </p>
+          <p className="text-2xl font-black text-white mt-2 tabular-nums">
+            {campaign.maxRewardPerUserPerDay > 0
+              ? currencyFormatter.format(campaign.maxRewardPerUserPerDay)
+              : "ไม่จำกัด"}
           </p>
         </div>
         <div className="bg-[#241335]/70 border border-white/10 rounded-3xl p-5 text-zinc-100">
           <p className="text-xs text-zinc-400 uppercase tracking-widest font-black">สถานะ</p>
           <p className="text-xl font-black text-white/90 mt-2 uppercase">{campaign.status}</p>
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-[#241335]/70 border border-white/10 rounded-3xl p-5 text-zinc-100">
-          <p className="text-xs text-zinc-400 uppercase tracking-widest font-black">
-            จำนวนแชร์สะสม (ระบบ)
-          </p>
-          <p className="text-3xl font-black text-white mt-2 tabular-nums">
-            {campaign.currentShares.toLocaleString("th-TH")}
-          </p>
-        </div>
-        <div className="bg-[#241335]/70 border border-white/10 rounded-3xl p-5 text-zinc-100">
-          <p className="text-xs text-zinc-400 uppercase tracking-widest font-black">
-            โควต้าสูงสุดจากงบ
-          </p>
-          <p className="text-3xl font-black text-white mt-2 tabular-nums">
-            {campaign.maxSharesFromBudget > 0
-              ? campaign.maxSharesFromBudget.toLocaleString("th-TH")
-              : "—"}
-          </p>
-          <p className="text-[11px] text-zinc-400 mt-2">
-            คำนวณจาก งบรวม ÷ ค่าตอบแทนต่อแชร์ ({currencyFormatter.format(campaign.rewardPerShare)})
-          </p>
-        </div>
         <div className="bg-[#241335]/70 border border-white/10 rounded-3xl p-5 text-zinc-100">
           <p className="text-xs text-zinc-400 uppercase tracking-widest font-black">
             ผู้ใช้ในตาราง (มีแถวสถิติ)
           </p>
-          <p className="text-3xl font-black text-white mt-2 tabular-nums">
+          <p className="text-2xl font-black text-white mt-2 tabular-nums">
             {sharers.length.toLocaleString("th-TH")}
           </p>
         </div>

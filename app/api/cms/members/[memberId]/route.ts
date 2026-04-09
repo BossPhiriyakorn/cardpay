@@ -10,7 +10,18 @@ import {
   notifyUserBankAccountRejected,
   notifyUserBankAccountVerified,
 } from "@/lib/line-notify";
-import { BankAccount, Campaign, CampaignMemberStat, User, WithdrawalRequest } from "@/models";
+import {
+  AuditLog,
+  BankAccount,
+  Campaign,
+  CampaignMemberStat,
+  CampaignUserDailyStat,
+  LineMessageLog,
+  Sponsor,
+  User,
+  UserDailyStat,
+  WithdrawalRequest,
+} from "@/models";
 
 function asObjectIdString(value: unknown): string {
   if (!value) return "";
@@ -323,6 +334,94 @@ export async function PATCH(
     });
   } catch (e) {
     console.error("[api/cms/members/:memberId:PATCH]", e);
+    return NextResponse.json({ ok: false, error: "database_unavailable" }, { status: 503 });
+  }
+}
+
+/**
+ * DELETE — ลบสมาชิกและข้อมูลที่อ้างอิงใน MongoDB เท่านั้น (ไม่ลบไฟล์บน Google Drive)
+ */
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ memberId: string }> }
+) {
+  const admin = await requireAdminSession();
+  if (!admin.ok) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+  if (!canApproveFinance(admin.role)) {
+    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+  }
+
+  const { memberId } = await context.params;
+  if (!mongoose.Types.ObjectId.isValid(memberId)) {
+    return NextResponse.json({ ok: false, error: "invalid_member_id" }, { status: 400 });
+  }
+
+  try {
+    await connectToDatabase();
+
+    const user = await User.findById(memberId).select("role lineUid").lean();
+    if (!user) {
+      return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+    }
+
+    const role = String((user as { role?: string }).role ?? "user");
+    if (role === "admin") {
+      return NextResponse.json(
+        { ok: false, error: "cannot_delete_line_admin_user" },
+        { status: 409 }
+      );
+    }
+    if (role === "sponsor") {
+      return NextResponse.json(
+        { ok: false, error: "cannot_delete_sponsor_user" },
+        { status: 409 }
+      );
+    }
+
+    const linkedSponsor = await Sponsor.findOne({ userId: memberId }).select("_id").lean();
+    if (linkedSponsor) {
+      return NextResponse.json(
+        { ok: false, error: "user_linked_to_sponsor_record" },
+        { status: 409 }
+      );
+    }
+
+    const oid = new mongoose.Types.ObjectId(memberId);
+    const lineUid = String((user as { lineUid?: string }).lineUid ?? "").trim();
+
+    await WithdrawalRequest.deleteMany({ userId: oid });
+    await BankAccount.deleteMany({ userId: oid });
+    await CampaignMemberStat.deleteMany({ userId: oid });
+    await CampaignUserDailyStat.deleteMany({ userId: oid });
+    await UserDailyStat.deleteMany({ userId: oid });
+
+    await User.updateMany(
+      { referredByUserId: oid },
+      { $set: { referredByUserId: null }, $unset: { referredByCode: 1 } }
+    );
+
+    const lineLogOr: Array<Record<string, unknown>> = [{ recipientId: memberId }];
+    if (lineUid) {
+      lineLogOr.push({ lineUserId: lineUid, recipientType: "user" });
+    }
+    await LineMessageLog.deleteMany({ $or: lineLogOr });
+
+    await AuditLog.deleteMany({ actorUserId: oid });
+
+    await User.findByIdAndDelete(memberId);
+
+    await createAuditLog({
+      action: `ลบสมาชิก (${memberId}) โดย ${admin.username}`,
+      category: "member",
+      targetType: "user",
+      targetId: memberId,
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error("[api/cms/members/:memberId:DELETE]", e);
     return NextResponse.json({ ok: false, error: "database_unavailable" }, { status: 503 });
   }
 }

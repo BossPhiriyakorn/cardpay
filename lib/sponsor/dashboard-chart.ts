@@ -7,6 +7,8 @@ export type SponsorDashboardChartPeriod = "day" | "week" | "month";
 export type SponsorChartPoint = {
   date: string;
   dateFull: string;
+  /** วันที่แบบย่อสำหรับ tooltip เช่น 22 มี.ค. 2569 */
+  dateCompact: string;
   /** ยังไม่มีการเก็บคลิกรายวัน — ใช้ 0 */
   clicks: number;
   shares: number;
@@ -49,6 +51,18 @@ function formatShortDayLabel(dayKey: string): string {
     day: "numeric",
     month: "short",
     timeZone: BKK,
+  });
+}
+
+/** วันที่ย่อพร้อมปี พ.ศ. สำหรับ tooltip */
+function formatThaiCompactDateFromKey(dayKey: string): string {
+  const d = parseBangkokDayKey(dayKey);
+  return d.toLocaleDateString("th-TH", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: BKK,
+    calendar: "buddhist",
   });
 }
 
@@ -107,6 +121,7 @@ export async function buildDayChartSeries(
   return dayKeys.map((key) => ({
     date: formatShortDayLabel(key),
     dateFull: formatThaiFullDateFromKey(key),
+    dateCompact: formatThaiCompactDateFromKey(key),
     clicks: 0,
     shares: byKey.get(key) ?? 0,
   }));
@@ -144,6 +159,7 @@ export async function buildWeekChartSeries(
     return {
       date: weekday,
       dateFull: formatThaiFullDateFromKey(key),
+      dateCompact: formatThaiCompactDateFromKey(key),
       clicks: 0,
       shares: byKey.get(key) ?? 0,
     };
@@ -214,6 +230,7 @@ export async function buildMonthChartSeries(
     return {
       date: dateShort,
       dateFull: dateFull,
+      dateCompact: dateShort,
       clicks: 0,
       shares: sums.get(mk) ?? 0,
     };

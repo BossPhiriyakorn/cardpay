@@ -1,11 +1,24 @@
+/**
+ * แนะนำเพื่อน: ผู้ถูกแนะนำแชร์สำเร็จ «ครั้งแรก» (แคมเปญใดก็ได้) ผู้แนะนำได้รับเงินเท่ากับ rewardPerShare ของครั้งนั้น
+ * ครั้งเดียว — หลังบันทึกแล้วจะไม่จ่ายรางวัลแนะนำอีกแม้แชร์แคมเปญเดิม/ใหม่
+ * ถ้าครั้งแรกเป็นแคมเปญที่ rewardPerShare = 0 จะไม่จ่ายให้ผู้แนะนำ แต่สิทธิ์ครั้งเดียวถูกใช้แล้ว (ไม่จ่ายในครั้งถัดไป)
+ */
 import type { ClientSession } from "mongoose";
 import mongoose from "mongoose";
 
+import {
+  getPlatformCampaignEconomics,
+  resolveMaxEarnPerUserCampaign,
+  resolveMaxEarnPerUserPerDay,
+  resolveRewardPerShare,
+  sponsorBudgetSnapshot,
+} from "@/lib/campaign-share-economics";
 import { nowBangkokDayKey, startOfBangkokDayFromKey } from "@/lib/bangkok-day";
 import Campaign from "@/models/Campaign";
 import CampaignMemberStat from "@/models/CampaignMemberStat";
 import CampaignShareDaily from "@/models/CampaignShareDaily";
 import CampaignUserDailyStat from "@/models/CampaignUserDailyStat";
+import Sponsor from "@/models/Sponsor";
 import User from "@/models/User";
 import UserDailyStat from "@/models/UserDailyStat";
 import { ensureUserReferralCode } from "@/lib/referral-code";
@@ -66,20 +79,20 @@ export async function checkCampaignShareEligibility(params: {
     rewardPerShare?: number;
     maxRewardPerUser?: number;
     maxRewardPerUserPerDay?: number;
+    sponsorId?: unknown;
   };
 
   if (c.status !== "active") {
     return { ok: false, code: "inactive", message: "แคมเปญไม่เปิดรับการแชร์" };
   }
 
-  const totalBudget = Number(c.totalBudget ?? 0);
-  const usedBudget = Number(c.usedBudget ?? 0);
+  const platform = await getPlatformCampaignEconomics();
+  const rewardPerShare = resolveRewardPerShare(platform, c);
+  const maxRewardPerUserPerDay = resolveMaxEarnPerUserPerDay(platform, c);
+  const maxRewardPerUser = resolveMaxEarnPerUserCampaign(platform, c, rewardPerShare);
+
   const currentShares = Number(c.currentShares ?? 0);
   const quota = Number(c.quota ?? 0);
-  const rewardPerShare = Number(c.rewardPerShare ?? 0);
-  const maxRewardPerUser = Number(c.maxRewardPerUser ?? 0);
-  const maxRewardPerUserPerDay = Number(c.maxRewardPerUserPerDay ?? 0);
-
   if (quota > 0 && currentShares >= quota) {
     return { ok: false, code: "quota_exhausted", message: "โควตาแชร์เต็มแล้ว" };
   }
@@ -96,9 +109,24 @@ export async function checkCampaignShareEligibility(params: {
     }
   }
 
-  if (rewardPerShare > 0 && usedBudget + rewardPerShare + referralRewardAmount > totalBudget) {
-    return { ok: false, code: "budget_exhausted", message: "งบแคมเปญไม่เพียงพอ" };
+  const totalCost = rewardPerShare + referralRewardAmount;
+  const sponsorDoc = c.sponsorId
+    ? await Sponsor.findById(c.sponsorId as mongoose.Types.ObjectId).lean()
+    : null;
+  if (rewardPerShare > 0 && totalCost > 0) {
+    const { total, used } = sponsorBudgetSnapshot(sponsorDoc);
+    if (total <= 0) {
+      return {
+        ok: false,
+        code: "sponsor_budget_not_configured",
+        message: "ยังไม่ได้ตั้งงบโฆษณารวมของสปอนเซอร์ — ติดต่อแอดมิน",
+      };
+    }
+    if (used + totalCost > total) {
+      return { ok: false, code: "budget_exhausted", message: "งบโฆษณาของสปอนเซอร์ไม่เพียงพอ" };
+    }
   }
+
   if (!user?._id) {
     return { ok: true };
   }
@@ -174,23 +202,33 @@ async function runRecordCore(
     rewardPerShare?: number;
     maxRewardPerUser?: number;
     maxRewardPerUserPerDay?: number;
+    sponsorId?: unknown;
   };
 
   if (c.status !== "active") {
     return { ok: false, code: "inactive", message: "แคมเปญไม่เปิดรับการแชร์" };
   }
 
-  const totalBudget = Number(c.totalBudget ?? 0);
+  const platform = await getPlatformCampaignEconomics();
+  const rewardPerShare = resolveRewardPerShare(platform, c);
+  const maxRewardPerUserPerDay = resolveMaxEarnPerUserPerDay(platform, c);
+  const maxRewardPerUser = resolveMaxEarnPerUserCampaign(platform, c, rewardPerShare);
+
   const usedBudget = Number(c.usedBudget ?? 0);
   const currentShares = Number(c.currentShares ?? 0);
   const quota = Number(c.quota ?? 0);
-  const rewardPerShare = Number(c.rewardPerShare ?? 0);
-  const maxRewardPerUser = Number(c.maxRewardPerUser ?? 0);
-  const maxRewardPerUserPerDay = Number(c.maxRewardPerUserPerDay ?? 0);
 
   if (quota > 0 && currentShares >= quota) {
     return { ok: false, code: "quota_exhausted", message: "โควตาแชร์เต็มแล้ว" };
   }
+
+  const sponsorOid =
+    c.sponsorId && mongoose.Types.ObjectId.isValid(String(c.sponsorId))
+      ? new mongoose.Types.ObjectId(String(c.sponsorId))
+      : null;
+  let sponsorQuery = sponsorOid ? Sponsor.findById(sponsorOid) : null;
+  if (sponsorQuery && sess) sponsorQuery = sponsorQuery.session(sess);
+  const sponsorRaw = sponsorQuery ? await sponsorQuery.lean() : null;
 
   /* ห้ามใส่ name/image ทั้งใน $setOnInsert และ $set — MongoDB จะ error ConflictingUpdateOperators */
   const profileSet: Record<string, string> = {};
@@ -225,8 +263,8 @@ async function runRecordCore(
   const userId = user._id as mongoose.Types.ObjectId;
   await ensureUserReferralCode(String(userId), sess ?? null);
   let referralReward: ReferralRewardContext | null = null;
+  let eligibleReferrerId: mongoose.Types.ObjectId | null = null;
   if (
-    rewardPerShare > 0 &&
     user.referredByUserId &&
     !user.referralRewardClaimedAt &&
     String(user.referredByUserId) !== String(userId)
@@ -237,16 +275,29 @@ async function runRecordCore(
     }
     const referrer = await referrerQuery.lean();
     if (referrer?._id) {
-      referralReward = {
-        referrerUserId: referrer._id as mongoose.Types.ObjectId,
-        rewardAmount: rewardPerShare,
-      };
+      eligibleReferrerId = referrer._id as mongoose.Types.ObjectId;
+      if (rewardPerShare > 0) {
+        referralReward = {
+          referrerUserId: eligibleReferrerId,
+          rewardAmount: rewardPerShare,
+        };
+      }
     }
   }
 
   const totalBudgetToApply = rewardPerShare + Number(referralReward?.rewardAmount ?? 0);
-  if (rewardPerShare > 0 && usedBudget + totalBudgetToApply > totalBudget) {
-    return { ok: false, code: "budget_exhausted", message: "งบแคมเปญไม่เพียงพอ" };
+  if (rewardPerShare > 0 && totalBudgetToApply > 0) {
+    const { total: st, used: su } = sponsorBudgetSnapshot(sponsorRaw);
+    if (st <= 0) {
+      return {
+        ok: false,
+        code: "sponsor_budget_not_configured",
+        message: "ยังไม่ได้ตั้งงบโฆษณารวมของสปอนเซอร์ — ติดต่อแอดมิน",
+      };
+    }
+    if (su + totalBudgetToApply > st) {
+      return { ok: false, code: "budget_exhausted", message: "งบโฆษณาของสปอนเซอร์ไม่เพียงพอ" };
+    }
   }
 
   let memberQuery = CampaignMemberStat.findOne({ campaignId: campaignOid, userId });
@@ -261,6 +312,7 @@ async function runRecordCore(
   }
 
   const [memberStat, dailyCampaignStat] = await Promise.all([memberQuery.lean(), dailyCampaignQuery.lean()]);
+
   const ownEarnedInCampaign =
     Number((memberStat as { ownShareEarned?: number } | null)?.ownShareEarned ?? 0);
   const ownEarnedTodayInCampaign = Number(
@@ -292,27 +344,73 @@ async function runRecordCore(
     };
   }
 
+  if (sponsorOid && totalBudgetToApply > 0) {
+    /**
+     * อย่าใช้เงื่อนไข advertisingUsedBudget เท่ากับค่าที่อ่านมา — ใน MongoDB ฟิลด์ที่ไม่มีในเอกสาร
+     * จะไม่ match กับ 0 ทำให้อัปเดตล้มทุกครั้ง (ขึ้น concurrent_update ทั้งที่ไม่มีใครแก้งบ)
+     * ใช้ $expr ตรวจว่าหลังบวกแล้วยังไม่เกินงบรวม (อะตอมิกกับ $inc)
+     */
+    const sponsorUpdated = await Sponsor.findOneAndUpdate(
+      {
+        _id: sponsorOid,
+        $expr: {
+          $lte: [
+            {
+              $add: [
+                { $ifNull: ["$advertisingUsedBudget", 0] },
+                totalBudgetToApply,
+              ],
+            },
+            { $ifNull: ["$advertisingTotalBudget", 0] },
+          ],
+        },
+      },
+      { $inc: { advertisingUsedBudget: totalBudgetToApply } },
+      { returnDocument: "after", ...optSession(sess) }
+    );
+    if (!sponsorUpdated) {
+      return {
+        ok: false,
+        code: "budget_exhausted",
+        message:
+          "งบโฆษณาของสปอนเซอร์ไม่เพียงพอ หรือมีผู้แชร์พร้อมกันจนงบถึงขีดจำกัด — ลองอีกครั้งภายหลัง",
+      };
+    }
+  }
+
   const inc: Record<string, number> = { currentShares: 1 };
   if (totalBudgetToApply > 0) {
     inc.usedBudget = totalBudgetToApply;
   }
 
+  const campaignFilter: Record<string, unknown> = {
+    _id: campaignOid,
+    status: "active",
+  };
+  if (quota > 0) {
+    campaignFilter.$expr = {
+      $lt: [{ $ifNull: ["$currentShares", 0] }, quota],
+    };
+  }
+
   const updated = await Campaign.findOneAndUpdate(
-    {
-      _id: campaignOid,
-      status: "active",
-      currentShares,
-      usedBudget,
-    },
+    campaignFilter,
     { $inc: inc },
     { returnDocument: "after", ...optSession(sess) }
   );
 
   if (!updated) {
+    if (quota > 0) {
+      return {
+        ok: false,
+        code: "quota_exhausted",
+        message: "โควตาแชร์เต็มแล้ว",
+      };
+    }
     return {
       ok: false,
-      code: "concurrent_update",
-      message: "ข้อมูลแคมเปญเปลี่ยนระหว่างแชร์ — ลองอีกครั้ง",
+      code: "inactive",
+      message: "แคมเปญไม่เปิดรับการแชร์",
     };
   }
 
@@ -407,6 +505,11 @@ async function runRecordCore(
       { upsert: true, ...optSession(sess) }
     );
 
+  }
+
+  const shouldConsumeReferralSlot =
+    Boolean(eligibleReferrerId) && !user.referralRewardClaimedAt;
+  if (shouldConsumeReferralSlot) {
     await User.findByIdAndUpdate(
       userId,
       {

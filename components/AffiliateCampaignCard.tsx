@@ -30,16 +30,26 @@ export default function AffiliateCampaignCard({ campaign }: { campaign: Campaign
   const safeCurrent = Math.max(campaign.current, 0);
   const safeTotalBudget = Math.max(campaign.totalBudget, 0);
   const safeUsedBudget = Math.max(campaign.usedBudget, 0);
-  const remainingBudget = Math.max(safeTotalBudget - safeUsedBudget, 0);
+  const usesPerCampaignBudget = safeTotalBudget > 0;
+  const remainingBudget = usesPerCampaignBudget
+    ? Math.max(safeTotalBudget - safeUsedBudget, 0)
+    : 0;
   const usedRatio =
-    safeTotalBudget > 0 ? Math.min(safeUsedBudget / safeTotalBudget, 1) : 0;
+    usesPerCampaignBudget && safeTotalBudget > 0
+      ? Math.min(safeUsedBudget / safeTotalBudget, 1)
+      : 0;
   const percentage = usedRatio * 100;
-  const isLowBudget = safeTotalBudget > 0 ? remainingBudget / safeTotalBudget < 0.2 : false;
+  const isLowBudget =
+    usesPerCampaignBudget && safeTotalBudget > 0
+      ? remainingBudget / safeTotalBudget < 0.2
+      : false;
   const budgetExhaustedByAmount =
-    campaign.reward > 0 && remainingBudget < campaign.reward;
+    usesPerCampaignBudget &&
+    campaign.reward > 0 &&
+    remainingBudget < campaign.reward;
   const quotaFull = safeQuota > 0 && Math.max(safeQuota - safeCurrent, 0) <= 0;
   const campaignClosed = quotaFull || budgetExhaustedByAmount;
-  const closedLabel = quotaFull ? 'โควต้าแชร์เต็มแล้ว' : 'งบแคมเปญคงเหลือไม่พอแล้ว';
+  const closedLabel = quotaFull ? 'โควต้าแชร์เต็มแล้ว' : 'งบโฆษณาไม่พอสำหรับรางวัลนี้';
 
   const handleScroll = () => {
     if (scrollRef.current) {
@@ -183,27 +193,28 @@ export default function AffiliateCampaignCard({ campaign }: { campaign: Campaign
         </div>
 
         <div className="mt-auto space-y-2.5">
-          {/* Quota Progress */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between items-end">
-              <span className="text-xs font-medium text-[#6a1b9a]/70 uppercase tracking-wider">
-                งบคงเหลือ
-              </span>
-              <span className={`text-xs font-medium ${isLowBudget ? 'text-rose-500' : 'text-[#4a148c]'}`}>
-                {`฿${remainingBudget.toLocaleString()} / ฿${safeTotalBudget.toLocaleString()}`}
-              </span>
+          {usesPerCampaignBudget ? (
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-end">
+                <span className="text-xs font-medium text-[#6a1b9a]/70 uppercase tracking-wider">
+                  งบคงเหลือ (แคมเปญ)
+                </span>
+                <span className={`text-xs font-medium ${isLowBudget ? 'text-rose-500' : 'text-[#4a148c]'}`}>
+                  {`฿${remainingBudget.toLocaleString()} / ฿${safeTotalBudget.toLocaleString()}`}
+                </span>
+              </div>
+              <div className="h-1.5 w-full bg-[#f3e5f5] rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  whileInView={{ width: `${100 - percentage}%` }}
+                  transition={{ duration: 1, ease: 'easeOut' }}
+                  className={`h-full rounded-full ${
+                    isLowBudget ? 'bg-rose-500' : 'bg-[#8e24aa]'
+                  }`}
+                />
+              </div>
             </div>
-            <div className="h-1.5 w-full bg-[#f3e5f5] rounded-full overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                whileInView={{ width: `${100 - percentage}%` }}
-                transition={{ duration: 1, ease: 'easeOut' }}
-                className={`h-full rounded-full ${
-                  isLowBudget ? 'bg-rose-500' : 'bg-[#8e24aa]'
-                }`}
-              />
-            </div>
-          </div>
+          ) : null}
 
           {/* Action Button — ไปหน้า /share ที่ init LIFF แล้วเปิด shareTargetPicker */}
           <motion.button

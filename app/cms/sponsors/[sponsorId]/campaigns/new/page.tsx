@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
-import { shareQuotaFromBudget } from "@/lib/share-quota";
 import { useCmsAdminMe } from "@/hooks/useCmsAdminMe";
 
 type Props = { params: Promise<{ sponsorId: string }> };
@@ -34,6 +33,8 @@ function mapApiError(code: string | undefined): string {
       return "อัปโหลด Google Drive ไม่สำเร็จ — ตรวจสิทธิ์โฟลเดอร์";
     case "invalid_reward_limit_combination":
       return "เพดานต่อวันต้องไม่มากกว่าเพดานต่อคนทั้งแคมเปญ";
+    case "missing_flex_or_card_fields":
+      return "ต้องมี JSON Flex หรือกรอกข้อมูลการ์ด (รูป/หัวข้อ/เนื้อหา/ลิงก์ติดต่อ) อย่างน้อยหนึ่งส่วน";
     default:
       return code ?? "บันทึกไม่สำเร็จ";
   }
@@ -51,7 +52,7 @@ export default function NewCampaignPage({ params }: Props) {
   const [tags, setTags] = useState<TagRow[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [totalBudget, setTotalBudget] = useState("");
+  const [appFeedDescription, setAppFeedDescription] = useState("");
   const [flexJson, setFlexJson] = useState("");
   const [shareAltText, setShareAltText] = useState("");
   const [rewardPerShare, setRewardPerShare] = useState("");
@@ -61,17 +62,14 @@ export default function NewCampaignPage({ params }: Props) {
   const [selectedTagIds, setSelectedTagIds] = useState<Set<string>>(new Set());
   const [previewFile, setPreviewFile] = useState<File | null>(null);
   const [previewObjectUrl, setPreviewObjectUrl] = useState<string | null>(null);
+  const [shareHeadline, setShareHeadline] = useState("");
+  const [shareBody, setShareBody] = useState("");
+  const [contactPhoneUri, setContactPhoneUri] = useState("");
+  const [contactChannelUri, setContactChannelUri] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const previewDisplayUrl = useMemo(() => previewObjectUrl, [previewObjectUrl]);
-
-  const derivedMaxShares = useMemo(() => {
-    const tb = parseNonNegativeNumber(totalBudget) ?? NaN;
-    const rps = parseNonNegativeNumber(rewardPerShare) ?? NaN;
-    if (!Number.isFinite(tb) || tb < 0 || !Number.isFinite(rps) || rps <= 0) return null;
-    return shareQuotaFromBudget(tb, rps);
-  }, [totalBudget, rewardPerShare]);
 
   const perUserShareLimit = useMemo(() => {
     const max = parseNonNegativeNumber(maxRewardPerUser);
@@ -131,11 +129,6 @@ export default function NewCampaignPage({ params }: Props) {
       return;
     }
     setError(null);
-    const budget = parseNonNegativeNumber(totalBudget);
-    if (budget == null) {
-      setError("กรุณากรอกงบรวมเป็นตัวเลขที่ถูกต้อง");
-      return;
-    }
     const rps = rewardPerShare.trim() === "" ? 0 : parseNonNegativeNumber(rewardPerShare);
     const maxPerUser =
       maxRewardPerUser.trim() === "" ? 0 : parseNonNegativeNumber(maxRewardPerUser);
@@ -162,8 +155,13 @@ export default function NewCampaignPage({ params }: Props) {
       const form = new FormData();
       form.set("name", name.trim());
       form.set("description", description.trim());
-      form.set("totalBudget", String(budget));
+      form.set("appFeedDescription", appFeedDescription.trim().slice(0, 800));
+      form.set("totalBudget", "0");
       form.set("shareAltText", shareAltText.trim());
+      form.set("shareHeadline", shareHeadline.trim());
+      form.set("shareBody", shareBody.trim());
+      form.set("contactPhoneUri", contactPhoneUri.trim());
+      form.set("contactChannelUri", contactChannelUri.trim());
       form.set("status", status);
       form.set("rewardPerShare", String(rps));
       form.set("maxRewardPerUser", String(maxPerUser));
@@ -216,6 +214,9 @@ export default function NewCampaignPage({ params }: Props) {
         <p className="text-sm text-[#6a1b9a]/70 mt-2">
           Sponsor ID: {sponsorId} — ไฟล์ Flex JSON และรูปตัวอย่างจะถูกอัปโหลดไปยังโฟลเดอร์ย่อยชื่อรหัสนี้บน Google Drive
         </p>
+        <div className="mt-3 rounded-2xl border border-[#ce93d8] bg-[#f3e5f5] px-4 py-3 text-sm font-bold text-[#4a148c]">
+          งบโฆษณาอยู่ระดับสปอนเซอร์เท่านั้น — ฟอร์มนี้ใช้สร้างเนื้อหา/การ์ดแคมเปญ (ไม่มีการตั้งงบต่อแคมเปญ)
+        </div>
         {!isAdmin ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
             สิทธิ์ตรวจสอบไม่สามารถสร้างแคมเปญใหม่ได้
@@ -234,7 +235,7 @@ export default function NewCampaignPage({ params }: Props) {
             />
           </div>
           <div>
-            <label className={labelClass}>รายละเอียด</label>
+            <label className={labelClass}>คำอธิบายบนการ์ด Flex</label>
             <textarea
               className={`${inputClass} min-h-[88px] resize-y`}
               value={description}
@@ -243,14 +244,14 @@ export default function NewCampaignPage({ params }: Props) {
             />
           </div>
           <div>
-            <label className={labelClass}>งบรวม (บาท) *</label>
-            <input
-              className={inputClass}
-              value={totalBudget}
-              onChange={(e) => setTotalBudget(e.target.value)}
-              required
-              inputMode="decimal"
-              placeholder="0"
+            <label className={labelClass}>คำอธิบายในแอป (หน้าแรก / รายการแคมเปญ)</label>
+            <textarea
+              className={`${inputClass} min-h-[72px] resize-y`}
+              value={appFeedDescription}
+              onChange={(e) => setAppFeedDescription(e.target.value.slice(0, 800))}
+              maxLength={800}
+              rows={3}
+              placeholder="คนละส่วนกับคำอธิบายบนการ์ด"
             />
           </div>
           <div>
@@ -265,11 +266,12 @@ export default function NewCampaignPage({ params }: Props) {
             />
             <p className="text-[11px] text-[#6a1b9a]/55 mt-1.5 leading-relaxed">
               เมื่อกดสร้างแคมเปญ ระบบจะตรวจสอบความถูกต้องของ JSON แล้วอัปโหลดเป็นไฟล์ .json ใน Drive ภายใต้โฟลเดอร์{" "}
-              <span className="font-mono text-[#4a148c]/80">{sponsorId}</span> / โฟลเดอร์ JSON หลักที่ตั้งใน env
+              <span className="font-mono text-[#4a148c]/80">{sponsorId}</span> / โฟลเดอร์ JSON หลักที่ตั้งใน env — เว้นว่างได้
+              หากกรอกหัวข้อ/เนื้อหา/รูป/ลิงก์ด้านล่างเพื่อสร้างการ์ดอัตโนมัติ
             </p>
           </div>
           <div>
-            <label className={labelClass}>รูปตัวอย่างแคมเปญ (ไม่บังคับ)</label>
+            <label className={labelClass}>รูปการ์ด + รายการในแอป (ไม่บังคับ)</label>
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp,image/gif"
@@ -301,6 +303,45 @@ export default function NewCampaignPage({ params }: Props) {
             </p>
           </div>
           <div>
+            <label className={labelClass}>หัวข้อบนการ์ด (แชร์ใน LINE)</label>
+            <input
+              className={inputClass}
+              value={shareHeadline}
+              onChange={(e) => setShareHeadline(e.target.value)}
+              placeholder="ถ้าว่างจะใช้ชื่อแคมเปญ"
+            />
+          </div>
+          <div>
+            <label className={labelClass}>เนื้อหาบนการ์ด</label>
+            <textarea
+              className={`${inputClass} min-h-[88px] resize-y`}
+              value={shareBody}
+              onChange={(e) => setShareBody(e.target.value)}
+              rows={3}
+              placeholder="ถ้าว่างจะใช้รายละเอียดแคมเปญ"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>ลิงก์ปุ่มโทร (URI)</label>
+              <input
+                className={inputClass}
+                value={contactPhoneUri}
+                onChange={(e) => setContactPhoneUri(e.target.value)}
+                placeholder="เช่น tel:0812345678"
+              />
+            </div>
+            <div>
+              <label className={labelClass}>ลิงก์ปุ่มช่องทางติดต่อ (URI)</label>
+              <input
+                className={inputClass}
+                value={contactChannelUri}
+                onChange={(e) => setContactChannelUri(e.target.value)}
+                placeholder="เช่น https://line.me/ti/p/~xxx"
+              />
+            </div>
+          </div>
+          <div>
             <label className={labelClass}>ค่าตอบแทนต่อแชร์ (บาท)</label>
             <input
               className={inputClass}
@@ -310,10 +351,7 @@ export default function NewCampaignPage({ params }: Props) {
               placeholder="0"
             />
             <p className="text-[11px] text-[#6a1b9a]/55 mt-1.5 leading-relaxed">
-              โควต้าแชร์สูงสุดคำนวณจากงบรวม ÷ ค่าตอบแทนต่อแชร์
-              {derivedMaxShares != null
-                ? ` — ประมาณ ${derivedMaxShares.toLocaleString("th-TH")} ครั้ง`
-                : " — กรอกงบและค่าตอบแทนมากกว่า 0 เพื่อดูจำนวนครั้ง"}
+              เพดานจำนวนครั้ง/วัน ใช้ตามการตั้งค่าแพลตฟอร์ม — งบจำกัดอยู่ที่งบรวมสปอนเซอร์
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

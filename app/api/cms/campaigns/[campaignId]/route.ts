@@ -109,7 +109,9 @@ export async function PATCH(request: Request, { params }: Params) {
 
       const statusRaw = String(form.get("status") ?? "active");
       const status =
-        statusRaw === "paused" || statusRaw === "completed" ? statusRaw : "active";
+        statusRaw === "paused" || statusRaw === "completed" || statusRaw === "archived"
+          ? statusRaw
+          : "active";
       const rewardPerShare = Number(form.get("rewardPerShare"));
       const maxRewardPerUser = Number(form.get("maxRewardPerUser"));
       const maxRewardPerUserPerDay = Number(form.get("maxRewardPerUserPerDay"));
@@ -143,10 +145,14 @@ export async function PATCH(request: Request, { params }: Params) {
       const $set: Record<string, unknown> = {
         name,
         description: String(form.get("description") ?? "").trim(),
+        appFeedDescription: String(form.get("appFeedDescription") ?? "")
+          .trim()
+          .slice(0, 800),
         totalBudget,
         usedBudget,
         shareAltText: clampShareAltText(form.get("shareAltText")),
         status,
+        archivedAt: status === "archived" ? new Date() : null,
         rewardPerShare: rps,
         maxRewardPerUser: maxPerUser,
         maxRewardPerUserPerDay: maxPerUserPerDay,
@@ -227,11 +233,12 @@ export async function PATCH(request: Request, { params }: Params) {
   let body: {
     name?: string;
     description?: string;
+    appFeedDescription?: string;
     totalBudget?: number;
     usedBudget?: number;
     flexMessageJsonDriveFileId?: string;
     shareAltText?: string;
-    status?: "active" | "paused" | "completed";
+    status?: "active" | "paused" | "completed" | "archived";
     rewardPerShare?: number;
     maxRewardPerUser?: number;
     maxRewardPerUserPerDay?: number;
@@ -256,6 +263,9 @@ export async function PATCH(request: Request, { params }: Params) {
   if (body.description !== undefined) {
     $set.description = String(body.description).trim();
   }
+  if (body.appFeedDescription !== undefined) {
+    $set.appFeedDescription = String(body.appFeedDescription).trim().slice(0, 800);
+  }
   if (body.totalBudget !== undefined) {
     const n = Number(body.totalBudget);
     if (!Number.isFinite(n) || n < 0) {
@@ -277,10 +287,15 @@ export async function PATCH(request: Request, { params }: Params) {
     $set.shareAltText = clampShareAltText(body.shareAltText);
   }
   if (body.status !== undefined) {
-    if (!["active", "paused", "completed"].includes(body.status)) {
+    if (!["active", "paused", "completed", "archived"].includes(body.status)) {
       return NextResponse.json({ ok: false, error: "invalid_status" }, { status: 400 });
     }
     $set.status = body.status;
+    if (body.status === "archived") {
+      $set.archivedAt = new Date();
+    } else {
+      $set.archivedAt = null;
+    }
   }
   if (body.rewardPerShare !== undefined) {
     const n = Number(body.rewardPerShare);

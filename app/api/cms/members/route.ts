@@ -23,7 +23,7 @@ export async function GET() {
     const docs = await User.find({})
       .sort({ createdAt: -1 })
       .select(
-        "name email phone lineDisplayId memberStatus pendingTransferAmount createdAt referralCode"
+        "name email phone lineDisplayId memberStatus pendingTransferAmount createdAt referralCode role"
       )
       .lean();
 
@@ -46,6 +46,7 @@ export async function GET() {
 
     const members = docs.map((doc) => ({
       id: String(doc._id),
+      role: String((doc as { role?: string }).role ?? "user"),
       name: String(doc.name ?? ""),
       email: String(doc.email ?? ""),
       phone: String(doc.phone ?? ""),

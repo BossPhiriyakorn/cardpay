@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion, AnimatePresence, useReducedMotion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
+import Link from "next/link";
 import {
   Phone,
   LayoutDashboard,
@@ -17,6 +18,9 @@ import {
   Eye,
   EyeOff,
   LogOut,
+  Megaphone,
+  Share2,
+  Table2,
 } from "lucide-react";
 import {
   LineChart,
@@ -33,13 +37,14 @@ import type { SponsorChartPoint } from "@/lib/sponsor/dashboard-chart";
 
 type ChartPeriod = "day" | "week" | "month";
 
+type SponsorCampaignStatus = "active" | "paused" | "completed" | "archived";
+
 type SponsorCampaignRow = {
   id: string;
   name: string;
   currentShares: number;
-  remainingBudget: number;
-  totalBudget: number;
   usedBudget: number;
+  status: SponsorCampaignStatus;
 };
 
 type DashboardPayload = {
@@ -50,6 +55,11 @@ type DashboardPayload = {
   totalSharesAllCampaigns?: number;
   selectedCampaignId?: string | null;
   chart?: { period: ChartPeriod; points: SponsorChartPoint[] };
+  advertisingTotalBudget?: number;
+  advertisingUsedBudget?: number;
+  advertisingRemainingBudget?: number;
+  /** ลิงก์ติดต่อแอดมิน — จาก CMS (ตั้งค่าแพลตฟอร์ม); ว่างบน client จะ fallback env */
+  supportContactUrl?: string;
   error?: string;
 };
 
@@ -61,19 +71,19 @@ const SPONSOR_CHART_DOT = "#8e24aa";
 const SPONSOR_CHART_DOT_LAST = "#6a1b9a";
 const SPONSOR_CHART_CURSOR = "#ab47bc";
 
-const CHART_TOOLTIP_SPRING = { type: "spring" as const, stiffness: 300, damping: 35 };
-
 const motionEase = [0.22, 1, 0.36, 1] as const;
 
 const DASH_STAGGER = {
   metricShare: 0.04,
+  metricBalance: 0.08,
   metricCta: 0.12,
-  analyticsHeader: 0.26,
-  analyticsDropdown: 0.32,
-  analyticsBalance: 0.38,
-  analyticsPeriod: 0.44,
-  analyticsChart: 0.5,
-  footer: 0.56,
+  metricCampaignCount: 0.16,
+  analyticsHeader: 0.22,
+  analyticsCampaignSelect: 0.28,
+  analyticsPeriod: 0.36,
+  analyticsChart: 0.42,
+  inactiveCampaignTable: 0.45,
+  footer: 0.48,
 } as const;
 
 function SponsorLineChartTooltip({
@@ -83,32 +93,18 @@ function SponsorLineChartTooltip({
   active?: boolean;
   payload?: ReadonlyArray<{ payload?: SponsorChartPoint }>;
 }) {
-  const reduceMotion = useReducedMotion();
   if (!active || !payload?.[0]?.payload) return null;
   const row = payload[0].payload;
 
-  const transition = reduceMotion ? { duration: 0.12 } : CHART_TOOLTIP_SPRING;
-  const initial = reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.94, y: 10 };
-  const animate = reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 };
-
   return (
-    <motion.div
-      key={row.date}
-      initial={initial}
-      animate={animate}
-      transition={transition}
-      style={{ transformOrigin: "bottom center" }}
-      className="rounded-2xl border border-[#e1bee7]/90 bg-white px-4 py-3 shadow-xl shadow-[#e1bee7]/35"
-    >
-      <p className="text-xs font-semibold leading-snug text-slate-600">{row.dateFull}</p>
-      <p className="mt-2 text-sm font-bold text-[#4a148c]">
-        แชร์ <span className="font-medium text-slate-400">:</span>{" "}
-        {row.shares.toLocaleString("th-TH")}
+    <div className="w-max max-w-[min(100vw-24px,200px)] rounded-lg border border-[#e1bee7]/90 bg-white px-2.5 py-1.5 shadow-md shadow-[#e1bee7]/25">
+      <p className="text-[11px] font-semibold leading-tight text-slate-700 whitespace-normal">
+        {row.dateCompact}
       </p>
-      <p className="mt-1 text-[11px] text-slate-400">
-        การนับคลิกรายวันจะแสดงเมื่อระบบเก็บข้อมูลเพิ่มเติม
+      <p className="mt-1 text-xs font-bold leading-tight text-[#4a148c] tabular-nums">
+        แชร์ : {row.shares.toLocaleString("th-TH")}
       </p>
-    </motion.div>
+    </div>
   );
 }
 
@@ -157,6 +153,8 @@ export default function SponsorPortal() {
   const [dashError, setDashError] = useState<string | null>(null);
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("day");
+  /** การ์ดตาราง: ลบแล้ว vs หยุด/จบแล้ว */
+  const [inactiveCampaignTab, setInactiveCampaignTab] = useState<"archived" | "paused">("archived");
 
   const checkSession = useCallback(async () => {
     try {
@@ -180,13 +178,39 @@ export default function SponsorPortal() {
   );
 
   const campaigns = dash?.campaigns ?? [];
+
+  const campaignsActive = useMemo(
+    () => campaigns.filter((c) => c.status === "active"),
+    [campaigns]
+  );
+  const campaignsArchivedOnly = useMemo(
+    () => campaigns.filter((c) => c.status === "archived"),
+    [campaigns]
+  );
+  const campaignsPausedOrEnded = useMemo(
+    () => campaigns.filter((c) => c.status === "paused" || c.status === "completed"),
+    [campaigns]
+  );
+
   const selectedCampaign = useMemo(
-    () => campaigns.find((c) => c.id === selectedCampaignId) ?? null,
-    [campaigns, selectedCampaignId]
+    () => campaignsActive.find((c) => c.id === selectedCampaignId) ?? null,
+    [campaignsActive, selectedCampaignId]
+  );
+
+  const campaignSpendFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat("th-TH", {
+        style: "currency",
+        currency: "THB",
+        maximumFractionDigits: 0,
+      }),
+    []
   );
 
   const campaignSharesTotal = dash?.totalSharesAllCampaigns ?? 0;
-  const campaignRemainingBalance = selectedCampaign?.remainingBudget ?? 0;
+  const advRemaining = Math.max(0, Number(dash?.advertisingRemainingBudget ?? 0));
+  const advTotal = Math.max(0, Number(dash?.advertisingTotalBudget ?? 0));
+  const advUsed = Math.max(0, Number(dash?.advertisingUsedBudget ?? 0));
 
   useEffect(() => {
     if (!sponsorAuthed) {
@@ -201,7 +225,9 @@ export default function SponsorPortal() {
       setDashError(null);
       try {
         const q = new URLSearchParams({ period: chartPeriod });
-        if (selectedCampaignId) q.set("campaignId", selectedCampaignId);
+        if (selectedCampaignId) {
+          q.set("campaignId", selectedCampaignId);
+        }
         const res = await fetch(`/api/sponsor/dashboard?${q}`, {
           signal: ac.signal,
           cache: "no-store",
@@ -212,11 +238,11 @@ export default function SponsorPortal() {
           throw new Error(data.error ?? "load_failed");
         }
         setDash(data);
-        if (selectedCampaignId === "" && data.selectedCampaignId) {
-          setSelectedCampaignId(data.selectedCampaignId);
-        }
       } catch (e) {
         if (ac.signal.aborted) return;
+        const abortedByFetch =
+          e instanceof DOMException && e.name === "AbortError";
+        if (abortedByFetch) return;
         setDashError(e instanceof Error ? e.message : "โหลดไม่สำเร็จ");
         setDash(null);
       } finally {
@@ -226,6 +252,25 @@ export default function SponsorPortal() {
 
     return () => ac.abort();
   }, [sponsorAuthed, chartPeriod, selectedCampaignId]);
+
+  /** แยกจาก effect โหลด — อย่า setSelectedCampaignId ใน callback ที่ deps มี selectedCampaignId (จะ abort แข่งกันแล้วขึ้น load_failed) */
+  useEffect(() => {
+    if (!sponsorAuthed || !dash?.campaigns) return;
+    const activeIds = (dash.campaigns ?? [])
+      .filter((c) => c.status === "active")
+      .map((c) => c.id);
+    const allowed = new Set(activeIds);
+    const serverPick = String(dash.selectedCampaignId ?? "").trim();
+    const cur = selectedCampaignId;
+    if (cur && allowed.has(cur)) return;
+    const next =
+      serverPick && allowed.has(serverPick)
+        ? serverPick
+        : activeIds[0] ?? "";
+    if (next !== cur) {
+      setSelectedCampaignId(next);
+    }
+  }, [sponsorAuthed, dash, selectedCampaignId]);
 
   async function handleLogout() {
     try {
@@ -671,6 +716,11 @@ export default function SponsorPortal() {
   }
 
   const companyName = dash?.companyName?.trim() ?? "";
+  const sponsorSupportUrl =
+    (dash?.supportContactUrl?.trim() ||
+      process.env.NEXT_PUBLIC_SPONSOR_SUPPORT_URL?.trim() ||
+      "");
+  const campaignCount = campaignsActive.length;
 
   return (
     <AnimatePresence mode="wait">
@@ -704,36 +754,62 @@ export default function SponsorPortal() {
                   {companyName ? ` · ${companyName}` : ""}
                 </p>
               </div>
-              <div className="ml-auto flex items-center gap-2 shrink-0">
-                {dashLoading ? (
-                  <Loader2 className="w-5 h-5 text-[#8e24aa] animate-spin" aria-hidden />
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => void handleLogout()}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#e1bee7] bg-white px-3 py-2 text-xs font-bold text-[#6a1b9a] hover:border-[#8e24aa]/40 hover:text-[#8e24aa] transition-colors"
+              <div className="ml-auto flex items-start gap-2 shrink-0">
+                <div
+                  className="flex w-6 shrink-0 items-center justify-center self-stretch pt-2"
+                  aria-hidden={!dashLoading}
                 >
-                  <LogOut size={14} />
-                  ออกจากระบบ
-                </button>
+                  {dashLoading ? (
+                    <Loader2 className="h-5 w-5 text-[#8e24aa] animate-spin" aria-label="กำลังโหลด" />
+                  ) : null}
+                </div>
+                <div className="flex w-[min(100%,17.5rem)] sm:w-[17.5rem] flex-col gap-2">
+                  {sponsorSupportUrl ? (
+                    <a
+                      href={sponsorSupportUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex w-full min-h-[40px] items-center justify-center gap-1.5 rounded-xl border border-[#e1bee7] bg-white px-3 py-2 text-[11px] sm:text-xs font-bold text-[#6a1b9a] hover:border-[#8e24aa]/40 hover:text-[#8e24aa] transition-colors"
+                    >
+                      <Phone size={14} aria-hidden />
+                      ติดต่อแอดมิน / เติมเงิน
+                    </a>
+                  ) : (
+                    <span
+                      className="inline-flex w-full min-h-[40px] items-center justify-center gap-1.5 rounded-xl border border-dashed border-[#e1bee7] bg-[#faf8fc] px-3 py-2 text-center text-[10px] sm:text-[11px] font-bold leading-snug text-[#6a1b9a]/70"
+                      title="แอดมิน: ตั้งค่าได้ที่ CMS → ตั้งค่า → เนื้อหาสมัครและถอนเงิน → ช่องทางติดต่อแอดมิน — หรือตั้ง NEXT_PUBLIC_SPONSOR_SUPPORT_URL"
+                    >
+                      <Phone size={14} className="shrink-0" aria-hidden />
+                      ติดต่อแอดมิน / เติมเงิน
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void handleLogout()}
+                    className="inline-flex w-full min-h-[40px] items-center justify-center gap-1.5 rounded-xl border border-[#e1bee7] bg-white px-3 py-2 text-xs font-bold text-[#6a1b9a] hover:border-[#8e24aa]/40 hover:text-[#8e24aa] transition-colors"
+                  >
+                    <LogOut size={14} aria-hidden />
+                    ออกจากระบบ
+                  </button>
+                </div>
               </div>
             </motion.div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 md:gap-6">
+            <div className="grid grid-cols-2 gap-2 sm:gap-4 md:gap-6">
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: DASH_STAGGER.metricShare, duration: 0.45, ease: motionEase }}
-                className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-[#e1bee7]/70 shadow-sm shadow-[#f3e5f5]/50 flex items-center gap-4 sm:gap-5"
+                className="bg-white p-3 sm:p-6 rounded-2xl sm:rounded-3xl border border-[#e1bee7]/70 shadow-sm shadow-[#f3e5f5]/50 flex items-center gap-2 sm:gap-5 min-h-[88px] sm:min-h-0"
               >
-                <div className="w-12 h-12 sm:w-14 sm:h-14 bg-[#f3e5f5] rounded-xl sm:rounded-2xl flex items-center justify-center text-[#8e24aa] shrink-0">
-                  <MousePointer2 className="w-6 h-6 sm:w-7 sm:h-7" />
+                <div className="w-10 h-10 sm:w-14 sm:h-14 bg-[#f3e5f5] rounded-xl sm:rounded-2xl flex items-center justify-center text-[#8e24aa] shrink-0">
+                  <MousePointer2 className="w-5 h-5 sm:w-7 sm:h-7" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[11px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider sm:tracking-widest mb-0.5 sm:mb-1 leading-snug">
-                    แชร์แล้ว (ทุกแคมเปญ)
+                  <p className="text-[10px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider sm:tracking-widest mb-0.5 sm:mb-1 leading-snug">
+                    จำนวนการแชร์
                   </p>
-                  <h3 className="text-xl sm:text-2xl font-bold text-[#4a148c] tabular-nums">
+                  <h3 className="text-lg sm:text-2xl font-bold text-[#4a148c] tabular-nums">
                     {campaignSharesTotal.toLocaleString("th-TH")}
                   </h3>
                 </div>
@@ -742,17 +818,65 @@ export default function SponsorPortal() {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: DASH_STAGGER.metricCta, duration: 0.45, ease: motionEase }}
-                className="bg-gradient-to-r from-[#8e24aa] to-[#6a1b9a] p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-xl shadow-[#e1bee7]/60 flex flex-row items-center gap-3 sm:gap-5 group cursor-pointer hover:brightness-[1.03] active:brightness-95 transition-colors min-h-[56px]"
+                transition={{ delay: DASH_STAGGER.metricBalance, duration: 0.45, ease: motionEase }}
+                className="bg-white p-3 sm:p-6 rounded-2xl sm:rounded-3xl border border-[#e1bee7]/70 shadow-sm shadow-[#f3e5f5]/50 flex items-center gap-2 sm:gap-5 min-h-[88px] sm:min-h-0"
               >
-                <div className="shrink-0 p-2.5 sm:p-2 bg-white/20 rounded-lg text-white">
-                  <Phone className="w-5 h-5" />
+                <div className="w-10 h-10 sm:w-14 sm:h-14 bg-[#f3e5f5] rounded-xl sm:rounded-2xl flex items-center justify-center text-[#8e24aa] shrink-0">
+                  <Wallet className="w-5 h-5 sm:w-6 sm:h-6" aria-hidden />
                 </div>
-                <button type="button" className="text-left flex-1 min-w-0 py-1">
-                  <p className="text-white font-black text-sm leading-snug">ติดต่อแอดมินเพื่อลงโฆษณา</p>
-                  <p className="text-[#e1bee7] text-[10px] font-medium mt-0.5 sm:mt-1">Contact Admin to Advertise</p>
-                </button>
-                <ChevronRight className="shrink-0 w-5 h-5 text-white/70 group-hover:text-white transition-colors" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider sm:tracking-widest mb-0.5 sm:mb-1 leading-snug">
+                    ยอดเงินคงเหลือ
+                  </p>
+                  <p className="text-lg sm:text-2xl font-black tabular-nums text-[#4a148c] leading-tight truncate">
+                    {advTotal > 0
+                      ? `฿${advRemaining.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : "—"}
+                  </p>
+                  <p className="text-[9px] sm:text-[10px] text-slate-400 mt-0.5 tabular-nums leading-snug line-clamp-2">
+                    {advTotal > 0 ? (
+                      <>
+                        ใช้ไป ฿{advUsed.toLocaleString("th-TH")} / กำหนดรวม ฿
+                        {advTotal.toLocaleString("th-TH")}
+                      </>
+                    ) : (
+                      <>ยังไม่ได้ตั้งงบรวม — ติดต่อแอดมิน</>
+                    )}
+                  </p>
+                </div>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: DASH_STAGGER.metricCta, duration: 0.45, ease: motionEase }}
+                className="min-h-[88px] sm:min-h-[112px]"
+              >
+                <Link
+                  href="/sponsor/campaigns/new"
+                  className="flex h-full min-h-[88px] sm:min-h-[112px] items-center justify-center rounded-2xl sm:rounded-3xl bg-gradient-to-br from-[#5e35b1] via-[#7b1fa2] to-[#8e24aa] px-4 py-5 sm:px-6 sm:py-8 text-center text-white shadow-lg shadow-[#ce93d8]/35 ring-1 ring-white/15 transition-all hover:brightness-[1.07] hover:shadow-xl hover:shadow-[#ab47bc]/25 active:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8e24aa] focus-visible:ring-offset-2 focus-visible:ring-offset-[#fafafa]"
+                >
+                  <span className="text-base sm:text-xl font-black tracking-tight">สร้างแคมเปญ</span>
+                </Link>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: DASH_STAGGER.metricCampaignCount, duration: 0.45, ease: motionEase }}
+                className="bg-white p-3 sm:p-6 rounded-2xl sm:rounded-3xl border border-[#e1bee7]/70 shadow-sm shadow-[#f3e5f5]/50 flex items-center gap-2 sm:gap-5 min-h-[88px] sm:min-h-[112px]"
+              >
+                <div className="w-10 h-10 sm:w-14 sm:h-14 bg-[#f3e5f5] rounded-xl sm:rounded-2xl flex items-center justify-center text-[#8e24aa] shrink-0">
+                  <Megaphone className="w-5 h-5 sm:w-7 sm:h-7" aria-hidden />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider sm:tracking-widest mb-0.5 sm:mb-1 leading-snug">
+                    จำนวนแคมเปญ
+                  </p>
+                  <h3 className="text-lg sm:text-2xl font-bold text-[#4a148c] tabular-nums">
+                    {campaignCount.toLocaleString("th-TH")}
+                  </h3>
+                </div>
               </motion.div>
             </div>
 
@@ -762,77 +886,68 @@ export default function SponsorPortal() {
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: DASH_STAGGER.analyticsHeader, duration: 0.42, ease: motionEase }}
-                  className="flex items-start sm:items-center gap-3 sm:gap-4 min-w-0"
+                  className="flex items-start gap-3 sm:gap-4 min-w-0"
                 >
                   <div className="shrink-0 p-2.5 sm:p-3 bg-gradient-to-br from-[#4a148c] to-[#8e24aa] rounded-xl sm:rounded-2xl text-white shadow-md shadow-[#e1bee7]/50">
                     <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6" />
                   </div>
-                  <div className="min-w-0">
-                    <h2 className="text-lg sm:text-xl font-black text-[#4a148c] tracking-tight leading-tight">
-                      Campaign Analytics
-                    </h2>
-                    <p className="text-[11px] sm:text-xs text-slate-400 font-medium mt-0.5">
-                      {chartSubtitle(chartPeriod)}
-                    </p>
+                  <div className="min-w-0 flex-1 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <h2 className="text-lg sm:text-xl font-black text-[#4a148c] tracking-tight leading-tight">
+                          Campaign Analytics
+                        </h2>
+                        <Link
+                          href="/sponsor/campaigns"
+                          className="inline-flex items-center rounded-xl border border-[#e1bee7] bg-[#faf8fc] px-3 py-1.5 text-xs sm:text-sm font-black text-[#6a1b9a] hover:border-[#8e24aa]/45 hover:text-[#8e24aa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8e24aa]/25 shrink-0"
+                        >
+                          จัดการ
+                        </Link>
+                      </div>
+                      <p className="text-[11px] sm:text-xs text-slate-400 font-medium mt-0.5">
+                        {chartSubtitle(chartPeriod)}
+                      </p>
+                      {campaignsActive.length === 0 && campaigns.length === 0 ? (
+                        <p className="text-[10px] sm:text-[11px] text-slate-400/90 mt-1.5">
+                          <Link href="/sponsor/campaigns/new" className="font-bold text-[#8e24aa] hover:underline">
+                            สร้างแคมเปญแรก
+                          </Link>
+                          เพื่อเริ่มเก็บสถิติการแชร์
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
                 </motion.div>
 
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch lg:gap-4">
+                {campaignsActive.length > 0 ? (
                   <motion.div
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: DASH_STAGGER.analyticsDropdown, duration: 0.42, ease: motionEase }}
-                    className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 min-w-0"
+                    transition={{ delay: DASH_STAGGER.analyticsCampaignSelect, duration: 0.42, ease: motionEase }}
+                    className="flex flex-col gap-3 min-w-0"
                   >
-                    <label htmlFor="campaign-select" className="text-[11px] sm:text-xs font-black text-slate-400 uppercase tracking-wider sm:tracking-widest shrink-0 sm:pt-0.5">
-                      เลือกแคมเปญ:
+                    <label
+                      htmlFor="sponsor-campaign-analytics-select"
+                      className="text-[11px] sm:text-xs font-black text-slate-400 uppercase tracking-wider sm:tracking-widest shrink-0"
+                    >
+                      เลือกแคมเปญ (เปิดใช้งาน):
                     </label>
-                    {campaigns.length === 0 ? (
-                      <p
-                        id="campaign-select"
-                        className="w-full min-h-[48px] flex items-center rounded-xl border border-dashed border-[#e1bee7] bg-[#faf8fc] px-4 text-sm font-medium text-slate-400"
-                      >
-                        ยังไม่มีแคมเปญ — ติดต่อแอดมินให้สร้างแคมเปญให้คุณ
-                      </p>
-                    ) : (
-                      <select
-                        id="campaign-select"
-                        value={selectedCampaignId}
-                        onChange={(e) => setSelectedCampaignId(e.target.value)}
-                        className="w-full min-h-[48px] bg-[#faf8fc] border border-[#e1bee7]/80 rounded-xl px-3 sm:px-4 py-3 text-sm font-bold text-[#4a148c] focus:outline-none focus:ring-2 focus:ring-[#8e24aa]/25 touch-manipulation"
-                      >
-                        {campaigns.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name || "แคมเปญไม่มีชื่อ"}
-                          </option>
-                        ))}
-                      </select>
-                    )}
+                    <select
+                      id="sponsor-campaign-analytics-select"
+                      value={selectedCampaignId}
+                      onChange={(e) => setSelectedCampaignId(e.target.value)}
+                      className="w-full min-h-[48px] bg-[#faf8fc] border border-[#e1bee7]/80 rounded-xl px-3 sm:px-4 py-3 text-sm font-bold text-[#4a148c] focus:outline-none focus:ring-2 focus:ring-[#8e24aa]/25 touch-manipulation"
+                    >
+                      {campaignsActive.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name || "แคมเปญไม่มีชื่อ"}
+                        </option>
+                      ))}
+                    </select>
                   </motion.div>
-
-                  <motion.div
-                    initial={{ opacity: 0, y: 14 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: DASH_STAGGER.analyticsBalance, duration: 0.42, ease: motionEase }}
-                    className="flex shrink-0 items-center gap-3 rounded-xl border border-[#e1bee7]/80 bg-[#faf8fc] px-4 py-3 min-h-[48px] w-full lg:w-auto lg:min-w-[220px] lg:max-w-[280px]"
-                  >
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#f3e5f5] text-[#8e24aa]">
-                      <Wallet className="h-5 w-5" aria-hidden />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        ยอดเงินคงเหลือ (แคมเปญนี้)
-                      </p>
-                      <p className="text-lg font-black tabular-nums text-[#4a148c] leading-tight">
-                        ฿
-                        {campaignRemainingBalance.toLocaleString("th-TH", {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </p>
-                    </div>
-                  </motion.div>
-                </div>
+                ) : campaigns.length > 0 ? (
+                  <p className="text-[11px] sm:text-xs font-bold text-[#6a1b9a]/80">ไม่มีแคมเปญที่เปิดใช้งาน</p>
+                ) : null}
 
                 <motion.div
                   initial={{ opacity: 0, y: 14 }}
@@ -866,18 +981,63 @@ export default function SponsorPortal() {
                 </motion.div>
               </div>
 
+              {campaigns.length > 0 && selectedCampaign && selectedCampaignId ? (
+                <div className="px-3 sm:px-6 md:px-8 pt-4 pb-3 sm:pb-4 grid grid-cols-2 gap-2 sm:gap-4">
+                  <div className="bg-white min-w-0 p-2.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-[#e1bee7]/70 shadow-sm shadow-[#f3e5f5]/50 flex items-center gap-2 sm:gap-4 min-h-[88px]">
+                    <div className="w-9 h-9 sm:w-12 sm:h-12 bg-[#f3e5f5] rounded-lg sm:rounded-2xl flex items-center justify-center text-[#8e24aa] shrink-0">
+                      <Share2 className="w-[18px] h-[18px] sm:w-6 sm:h-6" aria-hidden />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[9px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider sm:tracking-widest mb-0.5 leading-snug line-clamp-2">
+                        ยอดแชร์แคมเปญนี้
+                      </p>
+                      <p className="text-lg sm:text-2xl font-black text-[#4a148c] tabular-nums leading-tight">
+                        {selectedCampaign.currentShares.toLocaleString("th-TH")}
+                      </p>
+                      <p className="text-[8px] sm:text-[10px] text-slate-400 mt-0.5 leading-snug line-clamp-2">
+                        จำนวนครั้งที่แชร์สะสมของแคมเปญที่เลือก
+                      </p>
+                    </div>
+                  </div>
+                  <div className="bg-white min-w-0 p-2.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-[#e1bee7]/70 shadow-sm shadow-[#f3e5f5]/50 flex items-center gap-2 sm:gap-4 min-h-[88px]">
+                    <div className="w-9 h-9 sm:w-12 sm:h-12 bg-[#f3e5f5] rounded-lg sm:rounded-2xl flex items-center justify-center text-[#8e24aa] shrink-0">
+                      <Wallet className="w-[18px] h-[18px] sm:w-6 sm:h-6" aria-hidden />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[9px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider sm:tracking-widest mb-0.5 leading-snug line-clamp-2">
+                        งบที่ใช้กับแคมเปญนี้
+                      </p>
+                      <p className="text-lg sm:text-2xl font-black text-[#4a148c] tabular-nums leading-tight truncate">
+                        {campaignSpendFormatter.format(Math.max(0, selectedCampaign.usedBudget))}
+                      </p>
+                      <p className="text-[8px] sm:text-[10px] text-slate-400 mt-0.5 leading-snug line-clamp-2">
+                        ยอดจ่ายรางวัลสะสมผ่านแคมเปญนี้
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               <motion.div
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: DASH_STAGGER.analyticsChart, duration: 0.48, ease: motionEase }}
                 className="px-3 sm:px-6 md:px-8 pb-6 sm:pb-8 md:pb-10 pt-0 w-full"
               >
-                {campaigns.length === 0 || !selectedCampaignId ? (
-                  <div className="flex min-h-[260px] items-center justify-center rounded-xl border border-dashed border-[#e1bee7] bg-[#faf8fc] px-4 py-12 text-center text-sm text-slate-500">
+                {campaigns.length === 0 ? (
+                  <div className="flex min-h-[200px] items-center justify-center rounded-xl border border-dashed border-[#e1bee7] bg-[#faf8fc] px-4 py-10 text-center text-sm text-slate-500">
                     ไม่มีข้อมูลกราฟจนกว่าจะมีแคมเปญและมีการบันทึกการแชร์รายวันในระบบ
                   </div>
+                ) : campaignsActive.length === 0 ? (
+                  <div className="flex min-h-[200px] items-center justify-center rounded-xl border border-dashed border-[#e1bee7] bg-[#faf8fc] px-4 py-10 text-center text-sm text-slate-500">
+                    ไม่มีแคมเปญที่เปิดใช้งาน — จึงยังไม่มีกราฟในส่วนนี้ (ดูรายการหยุดหรือลบแล้วในการ์ดด้านล่าง)
+                  </div>
+                ) : !selectedCampaignId ? (
+                  <div className="flex min-h-[200px] items-center justify-center rounded-xl border border-dashed border-[#e1bee7] bg-[#faf8fc] px-4 py-10 text-center text-sm text-slate-500">
+                    กำลังโหลดกราฟ…
+                  </div>
                 ) : chartData.length === 0 ? (
-                  <div className="flex min-h-[260px] items-center justify-center rounded-xl border border-dashed border-[#e1bee7] bg-[#faf8fc] px-4 py-12 text-center text-sm text-slate-500">
+                  <div className="flex min-h-[200px] items-center justify-center rounded-xl border border-dashed border-[#e1bee7] bg-[#faf8fc] px-4 py-10 text-center text-sm text-slate-500">
                     ยังไม่มีข้อมูลการแชร์ในช่วงเวลานี้
                   </div>
                 ) : (
@@ -897,7 +1057,7 @@ export default function SponsorPortal() {
                       style={chartAllowsHorizontalScroll ? { scrollbarGutter: "stable" } : undefined}
                     >
                       <div
-                        className="h-[min(52vh,400px)] min-h-[260px] sm:h-[360px] md:h-[400px] [&_.recharts-wrapper]:!overflow-visible [&_.recharts-surface]:overflow-visible"
+                        className="h-[min(30vh,240px)] min-h-[200px] sm:h-[220px] md:h-[260px] [&_.recharts-wrapper]:!overflow-visible [&_.recharts-surface]:overflow-visible"
                         style={
                           chartAllowsHorizontalScroll
                             ? { width: `max(100%, ${chartMinWidthPx}px)`, minWidth: "100%" }
@@ -911,16 +1071,16 @@ export default function SponsorPortal() {
                             margin={
                               isMobile
                                 ? {
-                                    top: 8,
-                                    right: 8,
-                                    left: 4,
-                                    bottom: chartPeriod === "month" ? 14 : chartPeriod === "week" ? 8 : 10,
+                                    top: 52,
+                                    right: 10,
+                                    left: 8,
+                                    bottom: chartPeriod === "month" ? 16 : chartPeriod === "week" ? 10 : 12,
                                   }
                                 : {
-                                    top: 20,
-                                    right: 24,
-                                    left: 0,
-                                    bottom: chartPeriod === "month" ? 12 : chartPeriod === "week" ? 8 : 10,
+                                    top: 56,
+                                    right: 14,
+                                    left: 8,
+                                    bottom: chartPeriod === "month" ? 14 : chartPeriod === "week" ? 10 : 12,
                                   }
                             }
                           >
@@ -970,10 +1130,17 @@ export default function SponsorPortal() {
                               }
                             />
                             <Tooltip
-                              isAnimationActive="auto"
-                              animationDuration={280}
-                              animationEasing="ease-out"
+                              isAnimationActive={false}
+                              allowEscapeViewBox={{ x: false, y: true }}
+                              offset={10}
                               cursor={{ stroke: SPONSOR_CHART_CURSOR, strokeWidth: 1, strokeDasharray: "4 4" }}
+                              wrapperStyle={{
+                                padding: 0,
+                                margin: 0,
+                                border: "none",
+                                boxShadow: "none",
+                                background: "transparent",
+                              }}
                               content={(props) => (
                                 <SponsorLineChartTooltip active={props.active} payload={props.payload} />
                               )}
@@ -999,7 +1166,7 @@ export default function SponsorPortal() {
                                     key={`dot-${index}`}
                                     cx={cx}
                                     cy={cy}
-                                    r={isLast ? 7 : 5}
+                                    r={isLast ? (isMobile ? 5 : 6) : isMobile ? 4 : 5}
                                     fill={isLast ? SPONSOR_CHART_DOT_LAST : SPONSOR_CHART_DOT}
                                     stroke="#ffffff"
                                     strokeWidth={2}
@@ -1017,6 +1184,155 @@ export default function SponsorPortal() {
                 )}
               </motion.div>
             </div>
+
+            {campaignsArchivedOnly.length > 0 || campaignsPausedOrEnded.length > 0 ? (
+              <motion.div
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: DASH_STAGGER.inactiveCampaignTable, duration: 0.42, ease: motionEase }}
+                className="bg-white rounded-2xl sm:rounded-[2rem] md:rounded-[2.5rem] border border-[#e1bee7]/70 shadow-sm shadow-[#f3e5f5]/40 overflow-hidden"
+              >
+                <div className="p-4 sm:p-6 md:p-8 border-b border-[#f3e5f5] space-y-4">
+                  <div className="flex flex-wrap items-start gap-3 sm:gap-4 min-w-0">
+                    <div className="shrink-0 p-2.5 sm:p-3 bg-[#f3e5f5] rounded-xl sm:rounded-2xl text-[#8e24aa]">
+                      <Table2 className="w-5 h-5 sm:w-6 sm:h-6" aria-hidden />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-lg sm:text-xl font-black text-[#4a148c] tracking-tight leading-tight">
+                        แคมเปญที่ไม่ได้เปิดใช้งาน
+                      </h2>
+                    </div>
+                  </div>
+                  <div
+                    className="flex w-full max-w-md rounded-xl border border-[#e1bee7]/80 bg-[#f3e5f5]/50 p-1"
+                    role="tablist"
+                    aria-label="เลือกประเภทแคมเปญ"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={inactiveCampaignTab === "archived"}
+                      onClick={() => setInactiveCampaignTab("archived")}
+                      className={`min-h-[40px] flex-1 rounded-lg px-3 py-2 text-xs sm:text-sm font-black transition-all ${
+                        inactiveCampaignTab === "archived"
+                          ? "bg-white text-[#4a148c] shadow-sm ring-1 ring-[#e1bee7]/90"
+                          : "text-slate-500 hover:text-[#4a148c]"
+                      }`}
+                    >
+                      ลบแล้ว ({campaignsArchivedOnly.length})
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={inactiveCampaignTab === "paused"}
+                      onClick={() => setInactiveCampaignTab("paused")}
+                      className={`min-h-[40px] flex-1 rounded-lg px-3 py-2 text-xs sm:text-sm font-black transition-all ${
+                        inactiveCampaignTab === "paused"
+                          ? "bg-white text-[#4a148c] shadow-sm ring-1 ring-[#e1bee7]/90"
+                          : "text-slate-500 hover:text-[#4a148c]"
+                      }`}
+                    >
+                      หยุด / จบแล้ว ({campaignsPausedOrEnded.length})
+                    </button>
+                  </div>
+                </div>
+                <div className="overflow-x-auto px-3 sm:px-6 md:px-8 pb-6 sm:pb-8">
+                  {inactiveCampaignTab === "archived" ? (
+                    campaignsArchivedOnly.length === 0 ? (
+                      <p className="text-sm text-slate-500 py-6 text-center">ไม่มีแคมเปญที่ลบแล้ว</p>
+                    ) : (
+                      <table className="w-full min-w-[520px] text-left text-sm">
+                        <thead className="bg-[#faf8fc] border-y border-[#e1bee7]">
+                          <tr>
+                            <th className="px-3 py-3 text-[11px] font-black uppercase text-[#6a1b9a]">
+                              แคมเปญ
+                            </th>
+                            <th className="px-3 py-3 text-[11px] font-black uppercase text-[#6a1b9a] tabular-nums">
+                              แชร์
+                            </th>
+                            <th className="px-3 py-3 text-[11px] font-black uppercase text-[#6a1b9a] tabular-nums">
+                              งบที่ใช้
+                            </th>
+                            <th className="px-3 py-3 text-right text-[11px] font-black uppercase text-[#6a1b9a]">
+                              ดูข้อมูล
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#f3e5f5]">
+                          {campaignsArchivedOnly.map((c) => (
+                            <tr key={c.id} className="hover:bg-[#faf8fc]/80">
+                              <td className="px-3 py-3 font-bold text-[#4a148c]">{c.name || "—"}</td>
+                              <td className="px-3 py-3 tabular-nums text-[#4a148c]">
+                                {c.currentShares.toLocaleString("th-TH")}
+                              </td>
+                              <td className="px-3 py-3 tabular-nums text-[#4a148c]">
+                                {campaignSpendFormatter.format(Math.max(0, c.usedBudget))}
+                              </td>
+                              <td className="px-3 py-3 text-right">
+                                <Link
+                                  href={`/sponsor/campaigns/${c.id}/edit`}
+                                  className="inline-flex rounded-xl border border-[#e1bee7] bg-white px-3 py-1.5 text-xs font-black text-[#6a1b9a] hover:border-[#8e24aa]/40"
+                                >
+                                  ดู
+                                </Link>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )
+                  ) : campaignsPausedOrEnded.length === 0 ? (
+                    <p className="text-sm text-slate-500 py-6 text-center">ไม่มีแคมเปญที่หยุดหรือจบแล้ว</p>
+                  ) : (
+                    <table className="w-full min-w-[560px] text-left text-sm">
+                      <thead className="bg-[#faf8fc] border-y border-[#e1bee7]">
+                        <tr>
+                          <th className="px-3 py-3 text-[11px] font-black uppercase text-[#6a1b9a]">
+                            แคมเปญ
+                          </th>
+                          <th className="px-3 py-3 text-[11px] font-black uppercase text-[#6a1b9a]">สถานะ</th>
+                          <th className="px-3 py-3 text-[11px] font-black uppercase text-[#6a1b9a] tabular-nums">
+                            แชร์
+                          </th>
+                          <th className="px-3 py-3 text-[11px] font-black uppercase text-[#6a1b9a] tabular-nums">
+                            งบที่ใช้
+                          </th>
+                          <th className="px-3 py-3 text-right text-[11px] font-black uppercase text-[#6a1b9a]">
+                            จัดการ
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#f3e5f5]">
+                        {campaignsPausedOrEnded.map((c) => (
+                          <tr key={c.id} className="hover:bg-[#faf8fc]/80">
+                            <td className="px-3 py-3 font-bold text-[#4a148c]">{c.name || "—"}</td>
+                            <td className="px-3 py-3">
+                              <span className="inline-flex rounded-full border border-[#e1bee7] bg-white px-2.5 py-0.5 text-[11px] font-black text-[#6a1b9a]">
+                                {c.status === "completed" ? "จบแล้ว" : "หยุดชั่วคราว"}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 tabular-nums text-[#4a148c]">
+                              {c.currentShares.toLocaleString("th-TH")}
+                            </td>
+                            <td className="px-3 py-3 tabular-nums text-[#4a148c]">
+                              {campaignSpendFormatter.format(Math.max(0, c.usedBudget))}
+                            </td>
+                            <td className="px-3 py-3 text-right">
+                              <Link
+                                href={`/sponsor/campaigns/${c.id}/edit`}
+                                className="inline-flex rounded-xl border border-[#e1bee7] bg-white px-3 py-1.5 text-xs font-black text-[#6a1b9a] hover:border-[#8e24aa]/40"
+                              >
+                                แก้ไข
+                              </Link>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </motion.div>
+            ) : null}
 
             <motion.div
               initial={{ opacity: 0, y: 10 }}

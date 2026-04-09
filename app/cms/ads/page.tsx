@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { Megaphone, Plus, Search, Eye, TrendingUp, Wallet } from 'lucide-react';
+import { Megaphone, LayoutTemplate, Plus, Search, Eye, Share2, Wallet } from 'lucide-react';
 
 type CampaignStatus = 'active' | 'paused' | 'completed';
 
@@ -14,6 +14,9 @@ type AdCampaign = {
   name: string;
   totalBudget: number;
   usedBudget: number;
+  currentShares: number;
+  sponsorAdvertisingTotalBudget: number;
+  sponsorAdvertisingUsedBudget: number;
   status: CampaignStatus;
 };
 
@@ -67,7 +70,17 @@ export default function AdsPage() {
           throw new Error(data.error ?? 'load_failed');
         }
         if (!cancelled) {
-          setCampaigns(data.campaigns ?? []);
+          const raw = data.campaigns ?? [];
+          setCampaigns(
+            raw.map((c) => ({
+              ...c,
+              currentShares: typeof c.currentShares === 'number' ? c.currentShares : 0,
+              sponsorAdvertisingTotalBudget:
+                typeof c.sponsorAdvertisingTotalBudget === 'number' ? c.sponsorAdvertisingTotalBudget : 0,
+              sponsorAdvertisingUsedBudget:
+                typeof c.sponsorAdvertisingUsedBudget === 'number' ? c.sponsorAdvertisingUsedBudget : 0,
+            }))
+          );
         }
       } catch {
         if (!cancelled) {
@@ -115,13 +128,28 @@ export default function AdsPage() {
             />
           </div>
         </div>
-        <Link
-          href="/cms/sponsors"
-          className="flex items-center justify-center gap-2 bg-[#8e24aa] text-white text-xs md:text-sm font-black px-4 md:px-6 py-2.5 md:py-3 rounded-2xl shadow-[0_0_30px_rgba(142,36,170,0.2)] hover:brightness-110 transition-all w-full md:w-auto"
-        >
-          <Plus size={18} className="md:w-5 md:h-5 shrink-0" />
-          ไปเพิ่มแคมเปญผ่านสปอนเซอร์
-        </Link>
+        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+          <Link
+            href="/cms/campaigns/templates"
+            className="flex items-center justify-center gap-2 bg-[#8e24aa] text-white text-xs md:text-sm font-black px-4 md:px-6 py-2.5 md:py-3 rounded-2xl shadow-[0_0_30px_rgba(142,36,170,0.2)] hover:brightness-110 transition-all"
+          >
+            <LayoutTemplate size={18} className="md:w-5 md:h-5 shrink-0" />
+            เพิ่มเทมเพลต
+          </Link>
+          <Link
+            href="/cms/campaigns/create"
+            className="flex items-center justify-center gap-2 bg-white/10 border border-white/15 text-white text-xs md:text-sm font-black px-4 md:px-6 py-2.5 md:py-3 rounded-2xl hover:bg-white/15 transition-all"
+          >
+            <Plus size={18} className="md:w-5 md:h-5 shrink-0" />
+            สร้างแคมเปญ
+          </Link>
+          <Link
+            href="/cms/sponsors"
+            className="flex items-center justify-center gap-2 bg-white/10 border border-white/15 text-white text-xs md:text-sm font-black px-4 md:px-6 py-2.5 md:py-3 rounded-2xl hover:bg-white/15 transition-all"
+          >
+            สปอนเซอร์
+          </Link>
+        </div>
       </div>
 
       {loading ? (
@@ -136,7 +164,6 @@ export default function AdsPage() {
         <div className="grid grid-cols-1 gap-4 md:gap-6">
           {filteredCampaigns.map((campaign, index) => {
             const status = statusUi(campaign.status);
-            const remainingBudget = Math.max(campaign.totalBudget - campaign.usedBudget, 0);
 
             return (
               <motion.div
@@ -179,18 +206,27 @@ export default function AdsPage() {
                       Sponsor: <span className="text-white/70">{campaign.sponsorName}</span>
                     </p>
 
-                    <div className="grid grid-cols-1 xs:grid-cols-2 sm:flex sm:items-center gap-2.5 md:gap-6 pt-1 md:pt-2">
+                    <div className="grid grid-cols-1 xs:grid-cols-2 sm:flex sm:flex-wrap sm:items-center gap-2.5 md:gap-6 pt-1 md:pt-2">
+                      <div className="flex items-center gap-2 text-[10px] md:text-xs text-white/50">
+                        <Share2 size={12} className="md:w-3.5 md:h-3.5 text-[#8e24aa] shrink-0" />
+                        แชร์แล้ว {campaign.currentShares.toLocaleString('th-TH')} ครั้ง
+                      </div>
                       <div className="flex items-center gap-2 text-[10px] md:text-xs text-white/50">
                         <Wallet size={12} className="md:w-3.5 md:h-3.5 text-[#8e24aa] shrink-0" />
-                        ใช้ไป {formatMoney(campaign.usedBudget)}
+                        จ่ายในแคมเปญนี้ {formatMoney(campaign.usedBudget)}
                       </div>
-                      <div className="flex items-center gap-2 text-[10px] md:text-xs text-white/50">
-                        <TrendingUp size={12} className="md:w-3.5 md:h-3.5 text-[#8e24aa] shrink-0" />
-                        งบรวม {formatMoney(campaign.totalBudget)}
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px] md:text-xs text-white/50 xs:col-span-2 sm:col-auto">
+                      <div
+                        className="flex items-center gap-2 text-[10px] md:text-xs text-white/50 xs:col-span-2 sm:col-auto"
+                        title={`งบรวม ${formatMoney(campaign.sponsorAdvertisingTotalBudget)} · ใช้ไป ${formatMoney(campaign.sponsorAdvertisingUsedBudget)}`}
+                      >
                         <Eye size={12} className="md:w-3.5 md:h-3.5 text-[#8e24aa] shrink-0" />
-                        คงเหลือ {formatMoney(remainingBudget)}
+                        งบคงเหลือ (สปอนเซอร์){' '}
+                        {formatMoney(
+                          Math.max(
+                            0,
+                            campaign.sponsorAdvertisingTotalBudget - campaign.sponsorAdvertisingUsedBudget
+                          )
+                        )}
                       </div>
                     </div>
                   </div>

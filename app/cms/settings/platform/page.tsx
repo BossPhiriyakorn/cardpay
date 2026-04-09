@@ -3,13 +3,16 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'motion/react';
-import { ArrowLeft, FileText, Loader2, Save, Wallet } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, Megaphone, Phone, Save, Wallet } from 'lucide-react';
 import { useCmsAdminMe } from '@/hooks/useCmsAdminMe';
 
 type SettingsPayload = {
   privacyPolicyText: string;
   termsOfServiceText: string;
   minWithdrawalAmount: number;
+  campaignRewardPerShare: number;
+  campaignMaxEarnPerUserPerDay: number;
+  sponsorPortalSupportUrl: string;
   updatedAt: string | null;
 };
 
@@ -21,6 +24,9 @@ export default function CmsPlatformSettingsPage() {
   const [privacyPolicyText, setPrivacyPolicyText] = useState('');
   const [termsOfServiceText, setTermsOfServiceText] = useState('');
   const [minWithdrawalAmount, setMinWithdrawalAmount] = useState(0);
+  const [campaignRewardPerShare, setCampaignRewardPerShare] = useState(0);
+  const [campaignMaxEarnPerUserPerDay, setCampaignMaxEarnPerUserPerDay] = useState(0);
+  const [sponsorPortalSupportUrl, setSponsorPortalSupportUrl] = useState('');
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,6 +53,9 @@ export default function CmsPlatformSettingsPage() {
         setPrivacyPolicyText(data.settings.privacyPolicyText);
         setTermsOfServiceText(data.settings.termsOfServiceText);
         setMinWithdrawalAmount(data.settings.minWithdrawalAmount);
+        setCampaignRewardPerShare(data.settings.campaignRewardPerShare ?? 0);
+        setCampaignMaxEarnPerUserPerDay(data.settings.campaignMaxEarnPerUserPerDay ?? 0);
+        setSponsorPortalSupportUrl(data.settings.sponsorPortalSupportUrl ?? '');
         setUpdatedAt(data.settings.updatedAt);
       } catch {
         if (!cancelled) setError('โหลดการตั้งค่าไม่สำเร็จ');
@@ -71,6 +80,9 @@ export default function CmsPlatformSettingsPage() {
           privacyPolicyText,
           termsOfServiceText,
           minWithdrawalAmount: Math.max(0, Math.floor(minWithdrawalAmount)),
+          campaignRewardPerShare: Math.max(0, Number(campaignRewardPerShare) || 0),
+          campaignMaxEarnPerUserPerDay: Math.max(0, Number(campaignMaxEarnPerUserPerDay) || 0),
+          sponsorPortalSupportUrl: sponsorPortalSupportUrl.trim().slice(0, 2048),
         }),
       });
       const data = (await res.json()) as { ok?: boolean; settings?: SettingsPayload; error?: string };
@@ -80,6 +92,9 @@ export default function CmsPlatformSettingsPage() {
       setPrivacyPolicyText(data.settings.privacyPolicyText);
       setTermsOfServiceText(data.settings.termsOfServiceText);
       setMinWithdrawalAmount(data.settings.minWithdrawalAmount);
+      setCampaignRewardPerShare(data.settings.campaignRewardPerShare ?? 0);
+      setCampaignMaxEarnPerUserPerDay(data.settings.campaignMaxEarnPerUserPerDay ?? 0);
+      setSponsorPortalSupportUrl(data.settings.sponsorPortalSupportUrl ?? '');
       setUpdatedAt(data.settings.updatedAt);
     } catch {
       setError('บันทึกไม่สำเร็จ');
@@ -175,6 +190,69 @@ export default function CmsPlatformSettingsPage() {
               rows={12}
               className="w-full rounded-2xl border border-[#e1bee7] bg-[#faf5fc] px-4 py-3 text-sm text-[#4a148c] focus:outline-none focus:border-[#8e24aa]/50 font-sans"
               placeholder="เว้นว่างเพื่อใช้ข้อความเริ่มต้นของระบบ"
+            />
+          </div>
+
+          <div className="rounded-2xl border border-[#e1bee7] bg-[#faf5fc] p-5">
+            <div className="flex items-center gap-2 text-[#8e24aa] mb-3">
+              <Megaphone size={20} />
+              <span className="text-sm font-black">กติกาแชร์แคมเปญ (ทั้งแพลตฟอร์ม)</span>
+            </div>
+            <p className="text-xs text-[#6a1b9a]/70 mb-4">
+              เมื่อตั้งค่าด้านล่าง ระบบจะใช้ค่าเหล่านี้แทนค่าที่บันทึกในแต่ละแคมเปญ (ยกเว้น 0 = ให้ใช้ค่าจากแคมเปญแบบเดิม)
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[11px] font-black uppercase tracking-wider text-[#6a1b9a]/75 mb-1.5">
+                  รางวัลต่อการแชร์ 1 ครั้ง (บาท)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={campaignRewardPerShare}
+                  onChange={(e) => setCampaignRewardPerShare(Math.max(0, Number(e.target.value) || 0))}
+                  className="w-full rounded-xl border border-[#e1bee7] bg-white px-4 py-2.5 text-sm font-bold text-[#4a148c] focus:outline-none focus:border-[#8e24aa]/50"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-black uppercase tracking-wider text-[#6a1b9a]/75 mb-1.5">
+                  เพดานเงินต่อผู้ใช้ต่อวันต่อแคมเปญ (บาท)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={campaignMaxEarnPerUserPerDay}
+                  onChange={(e) => setCampaignMaxEarnPerUserPerDay(Math.max(0, Number(e.target.value) || 0))}
+                  className="w-full rounded-xl border border-[#e1bee7] bg-white px-4 py-2.5 text-sm font-bold text-[#4a148c] focus:outline-none focus:border-[#8e24aa]/50"
+                />
+                <p className="text-[10px] text-[#6a1b9a]/55 mt-1">0 = ไม่จำกัดต่อวัน</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#e1bee7] bg-[#faf5fc] p-5">
+            <div className="flex items-center gap-2 text-[#8e24aa] mb-3">
+              <Phone size={20} />
+              <span className="text-sm font-black">ช่องทางติดต่อแอดมิน (พอร์ทัลสปอนเซอร์)</span>
+            </div>
+            <p className="text-xs text-[#6a1b9a]/70 mb-3">
+              ลิงก์สำหรับปุ่ม &quot;ติดต่อแอดมิน / เติมเงิน&quot; มุมขวาบนหน้า Sponsor Dashboard — รองรับ{' '}
+              <span className="font-mono text-[11px]">https://</span>, LINE OA,{' '}
+              <span className="font-mono text-[11px]">tel:</span>,{' '}
+              <span className="font-mono text-[11px]">mailto:</span>
+              ฯลฯ ถ้าเว้นว่างที่นี่ ระบบจะใช้ค่า{' '}
+              <span className="font-mono text-[11px]">NEXT_PUBLIC_SPONSOR_SUPPORT_URL</span> บนเซิร์ฟเวอร์ (ถ้ามี)
+            </p>
+            <input
+              type="text"
+              inputMode="url"
+              value={sponsorPortalSupportUrl}
+              onChange={(e) => setSponsorPortalSupportUrl(e.target.value.slice(0, 2048))}
+              className="w-full rounded-xl border border-[#e1bee7] bg-white px-4 py-2.5 text-sm text-[#4a148c] focus:outline-none focus:border-[#8e24aa]/50"
+              placeholder="เช่น https://line.me/R/ti/p/@your_oa หรือ tel:021234567"
+              autoComplete="off"
             />
           </div>
 

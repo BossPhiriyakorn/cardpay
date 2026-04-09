@@ -3,12 +3,14 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { motion } from 'motion/react';
-import { Users, Search, Plus, Mail, Phone, Calendar } from 'lucide-react';
+import { Users, Search, Plus, Mail, Phone, Calendar, Trash2 } from 'lucide-react';
 
 type MemberStatus = 'Active' | 'Inactive' | 'Banned' | 'PendingTransfer';
 
 type Member = {
   id: string;
+  /** user | sponsor | admin — ใช้ซ่อนปุ่มลบ */
+  role?: string;
   name: string;
   email: string;
   phone: string;
@@ -38,6 +40,8 @@ export default function MembersPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Member | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const pageSize = 10;
 
   useEffect(() => {
@@ -100,6 +104,47 @@ export default function MembersPage() {
     [members]
   );
   const totalMembersCount = members.length;
+
+  function canDeleteMember(m: Member): boolean {
+    const r = String(m.role ?? 'user');
+    return r !== 'sponsor' && r !== 'admin';
+  }
+
+  async function handleConfirmDelete() {
+    if (!confirmDelete) return;
+    const id = confirmDelete.id;
+    setDeletingId(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/cms/members/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        const msg =
+          data.error === 'cannot_delete_sponsor_user' || data.error === 'user_linked_to_sponsor_record'
+            ? 'ไม่สามารถลบได้ — ผู้ใช้เป็นสปอนเซอร์หรือผูกกับสปอนเซอร์'
+            : data.error === 'cannot_delete_line_admin_user'
+              ? 'ไม่สามารถลบได้ — บัญชีนี้เป็นแอดมินระบบ'
+              : data.error === 'forbidden'
+                ? 'ไม่มีสิทธิ์ลบสมาชิก'
+                : data.error === 'unauthorized'
+                  ? 'หมดเซสชัน กรุณาเข้าสู่ระบบใหม่'
+                  : 'ลบสมาชิกไม่สำเร็จ';
+        setError(msg);
+        setConfirmDelete(null);
+        return;
+      }
+      setMembers((prev) => prev.filter((x) => x.id !== id));
+      setConfirmDelete(null);
+    } catch {
+      setError('ลบสมาชิกไม่สำเร็จ');
+      setConfirmDelete(null);
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <div className="space-y-8 text-[#4a148c]">
@@ -307,12 +352,26 @@ export default function MembersPage() {
                     </div>
                   </td>
                   <td className="px-4 md:px-8 py-4 md:py-6 text-right">
-                    <Link
-                      href={`/cms/members/${member.id}`}
-                      className="inline-flex items-center justify-center px-4 py-2 text-xs font-bold rounded-xl border border-[#e1bee7] text-[#6a1b9a] hover:border-[#8e24aa]/50 hover:text-[#8e24aa] transition-colors"
-                    >
-                      จัดการ
-                    </Link>
+                    <div className="inline-flex flex-wrap items-center justify-end gap-2">
+                      <Link
+                        href={`/cms/members/${member.id}`}
+                        className="inline-flex items-center justify-center px-4 py-2 text-xs font-bold rounded-xl border border-[#e1bee7] text-[#6a1b9a] hover:border-[#8e24aa]/50 hover:text-[#8e24aa] transition-colors"
+                      >
+                        จัดการ
+                      </Link>
+                      {canDeleteMember(member) ? (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDelete(member)}
+                          disabled={deletingId === member.id}
+                          className="inline-flex items-center justify-center gap-1 px-3 py-2 text-xs font-bold rounded-xl border border-rose-200 text-rose-700 hover:bg-rose-50 hover:border-rose-300 transition-colors disabled:opacity-50"
+                          title="ลบสมาชิกออกจากฐานข้อมูล"
+                        >
+                          <Trash2 size={14} />
+                          ลบ
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -339,6 +398,39 @@ export default function MembersPage() {
           </div>
         </div>
       </motion.div>
+
+      {confirmDelete ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-[#e1bee7] bg-white p-6 shadow-xl">
+            <h2 className="text-base font-black text-[#4a148c] text-center">ยืนยันการลบสมาชิก</h2>
+            <p className="mt-3 text-sm text-[#6a1b9a]/90 text-center leading-relaxed">
+              ลบ <span className="font-bold text-[#4a148c]">{confirmDelete.name}</span> ออกจากระบบ
+              <br />
+              <span className="text-xs text-[#6a1b9a]/70">
+                ข้อมูลในฐานข้อมูลที่เกี่ยวข้องจะถูกลบ (ไม่ลบไฟล์บน Google Drive)
+              </span>
+            </p>
+            <div className="mt-5 flex flex-col-reverse sm:flex-row gap-2 sm:justify-center">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(null)}
+                disabled={deletingId !== null}
+                className="w-full sm:w-auto rounded-xl border border-[#e1bee7] px-4 py-3 text-sm font-bold text-[#6a1b9a] hover:bg-[#faf5fc] disabled:opacity-50"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmDelete()}
+                disabled={deletingId !== null}
+                className="w-full sm:w-auto rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-700 disabled:opacity-50"
+              >
+                {deletingId ? 'กำลังลบ…' : 'ลบถาวร'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

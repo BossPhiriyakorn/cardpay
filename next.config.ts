@@ -1,6 +1,17 @@
 import type {NextConfig} from 'next';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+/** โฟลเดอร์โปรเจกต์นี้ — กันปัญหา Next เลือก root ผิดเมื่อมี package-lock หลายชั้น (ทำให้ vendor-chunks หาย) */
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
+  outputFileTracingRoot: projectRoot,
+  serverExternalPackages: [
+    '@opentelemetry/api',
+    '@opentelemetry/core',
+    '@opentelemetry/semantic-conventions',
+  ],
   reactStrictMode: true,
   eslint: {
     ignoreDuringBuilds: true,

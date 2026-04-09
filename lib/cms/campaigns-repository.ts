@@ -53,7 +53,14 @@ export async function listCmsCampaigns(): Promise<{
       _id: { $in: sponsorIds },
     }).lean();
     const sponsorMap = new Map(
-      sponsorDocs.map((s) => [String(s._id), s.companyName as string])
+      sponsorDocs.map((s) => [
+        String(s._id),
+        {
+          companyName: String(s.companyName ?? "—"),
+          advertisingTotalBudget: Math.max(0, Number((s as { advertisingTotalBudget?: number }).advertisingTotalBudget ?? 0)),
+          advertisingUsedBudget: Math.max(0, Number((s as { advertisingUsedBudget?: number }).advertisingUsedBudget ?? 0)),
+        },
+      ])
     );
 
     const allTagIdStrings = [
@@ -86,13 +93,17 @@ export async function listCmsCampaigns(): Promise<{
         .map((tid) => tagBriefById.get(String(tid)))
         .filter((x): x is CmsCampaignTagBrief => x != null);
 
+      const sp = sponsorMap.get(String(d.sponsorId));
       return {
         id: String(d._id),
         sponsorId: String(d.sponsorId),
-        sponsorName: sponsorMap.get(String(d.sponsorId)) ?? "—",
+        sponsorName: sp?.companyName ?? "—",
+        sponsorAdvertisingTotalBudget: sp?.advertisingTotalBudget ?? 0,
+        sponsorAdvertisingUsedBudget: sp?.advertisingUsedBudget ?? 0,
         name: d.name,
         totalBudget: d.totalBudget,
         usedBudget: d.usedBudget ?? 0,
+        currentShares: Math.max(0, Math.floor(Number((d as { currentShares?: number }).currentShares ?? 0))),
         status: d.status as CmsCampaignStatus,
         tags,
       };
@@ -136,6 +147,7 @@ export async function getCmsCampaignById(
     );
     const d = doc as {
       description?: string;
+      appFeedDescription?: string;
       flexMessageJsonDriveFileId?: string;
       shareAltText?: string;
       rewardPerShare?: number;
@@ -150,12 +162,22 @@ export async function getCmsCampaignById(
       id: String(doc._id),
       sponsorId: String(doc.sponsorId),
       sponsorName: sponsor?.companyName ?? "—",
+      sponsorAdvertisingTotalBudget: Math.max(
+        0,
+        Number((sponsor as { advertisingTotalBudget?: number } | null)?.advertisingTotalBudget ?? 0)
+      ),
+      sponsorAdvertisingUsedBudget: Math.max(
+        0,
+        Number((sponsor as { advertisingUsedBudget?: number } | null)?.advertisingUsedBudget ?? 0)
+      ),
       name: doc.name,
       totalBudget: doc.totalBudget,
       usedBudget: doc.usedBudget ?? 0,
+      currentShares: Math.max(0, Math.floor(Number((doc as { currentShares?: number }).currentShares ?? 0))),
       status: doc.status as CmsCampaignStatus,
       tags,
       description: String(d.description ?? ""),
+      appFeedDescription: String(d.appFeedDescription ?? ""),
       flexMessageJsonDriveFileId: String(d.flexMessageJsonDriveFileId ?? ""),
       shareAltText: String(d.shareAltText ?? ""),
       rewardPerShare: typeof d.rewardPerShare === "number" ? d.rewardPerShare : 0,

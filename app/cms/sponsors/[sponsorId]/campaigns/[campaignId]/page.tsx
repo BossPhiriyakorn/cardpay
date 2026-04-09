@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { use, useEffect, useMemo, useState } from "react";
 import { ArrowLeft } from "lucide-react";
-import type { CmsCampaignRow } from "@/lib/cms/types";
-import { shareQuotaFromBudget } from "@/lib/share-quota";
+import type { CmsCampaignRow, CmsCampaignStatus } from "@/lib/cms/types";
 import { useCmsAdminMe } from "@/hooks/useCmsAdminMe";
 import {
   driveImageViewUrl,
@@ -67,13 +66,13 @@ export default function CampaignDetailPage({ params }: Props) {
   const [tags, setTags] = useState<TagRow[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [totalBudget, setTotalBudget] = useState("");
+  const [appFeedDescription, setAppFeedDescription] = useState("");
   const [flexJson, setFlexJson] = useState("");
   const [shareAltText, setShareAltText] = useState("");
   const [rewardPerShare, setRewardPerShare] = useState("");
   const [maxRewardPerUser, setMaxRewardPerUser] = useState("");
   const [maxRewardPerUserPerDay, setMaxRewardPerUserPerDay] = useState("");
-  const [status, setStatus] = useState<"active" | "paused" | "completed">("active");
+  const [status, setStatus] = useState<CmsCampaignStatus>("active");
   const [selectedTagIds, setSelectedTagIds] = useState<Set<string>>(new Set());
   const [previewFile, setPreviewFile] = useState<File | null>(null);
   const [previewObjectUrl, setPreviewObjectUrl] = useState<string | null>(null);
@@ -122,7 +121,7 @@ export default function CampaignDetailPage({ params }: Props) {
           const c = data.campaign;
           setName(c.name);
           setDescription(c.description ?? "");
-          setTotalBudget(String(c.totalBudget));
+          setAppFeedDescription(c.appFeedDescription ?? "");
           setFlexJson("");
           setShareAltText(c.shareAltText ?? "");
           setRewardPerShare(String(c.rewardPerShare ?? 0));
@@ -165,18 +164,6 @@ export default function CampaignDetailPage({ params }: Props) {
     setPreviewObjectUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [previewFile]);
-
-  const budgetInfo = useMemo(() => {
-    if (!campaign) return { remaining: 0 };
-    return { remaining: Math.max(campaign.totalBudget - campaign.usedBudget, 0) };
-  }, [campaign]);
-
-  const derivedMaxShares = useMemo(() => {
-    const tb = parseNonNegativeNumber(totalBudget) ?? NaN;
-    const rps = parseNonNegativeNumber(rewardPerShare) ?? NaN;
-    if (!Number.isFinite(tb) || tb < 0 || !Number.isFinite(rps) || rps <= 0) return null;
-    return shareQuotaFromBudget(tb, rps);
-  }, [totalBudget, rewardPerShare]);
 
   const perUserShareLimit = useMemo(() => {
     const max = parseNonNegativeNumber(maxRewardPerUser);
@@ -232,34 +219,31 @@ export default function CampaignDetailPage({ params }: Props) {
           {campaign.sponsorName} • Campaign ID: {campaign.id}
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
           <div className="rounded-2xl border border-[#e1bee7] bg-[#faf5fc] p-4">
-            <p className="text-xs font-black tracking-wider uppercase text-[#6a1b9a]/70">งบรวม</p>
-            <p className="text-xl font-black text-[#4a148c] mt-2">
-              {currencyFormatter.format(campaign.totalBudget)}
+            <p className="text-xs font-black tracking-wider uppercase text-[#6a1b9a]/70">
+              จำนวนแชร์สะสม
+            </p>
+            <p className="text-xl font-black text-[#4a148c] mt-2 tabular-nums">
+              {(campaign.currentShares ?? 0).toLocaleString("th-TH")}
             </p>
           </div>
           <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4">
-            <p className="text-xs font-black tracking-wider uppercase text-amber-700/70">ใช้ไปแล้ว</p>
-            <p className="text-xl font-black text-amber-700 mt-2">
+            <p className="text-xs font-black tracking-wider uppercase text-amber-700/70">
+              ยอดใช้จ่ายในแคมเปญ (สะสม)
+            </p>
+            <p className="text-xl font-black text-amber-700 mt-2 tabular-nums">
               {currencyFormatter.format(campaign.usedBudget)}
             </p>
           </div>
-          <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4">
-            <p className="text-xs font-black tracking-wider uppercase text-emerald-700/70">คงเหลือ</p>
-            <p className="text-xl font-black text-emerald-700 mt-2">
-              {currencyFormatter.format(budgetInfo.remaining)}
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
           <div className="rounded-2xl border border-[#e1bee7] bg-[#faf5fc] p-4">
             <p className="text-xs font-black tracking-wider uppercase text-[#6a1b9a]/70">
               เพดานต่อคนทั้งแคมเปญ
             </p>
             <p className="text-xl font-black text-[#4a148c] mt-2">
-              {currencyFormatter.format(campaign.maxRewardPerUser ?? 0)}
+              {campaign.maxRewardPerUser != null && campaign.maxRewardPerUser > 0
+                ? currencyFormatter.format(campaign.maxRewardPerUser)
+                : "ไม่จำกัด"}
             </p>
           </div>
           <div className="rounded-2xl border border-[#e1bee7] bg-[#faf5fc] p-4">
@@ -267,7 +251,9 @@ export default function CampaignDetailPage({ params }: Props) {
               เพดานต่อคนต่อวัน
             </p>
             <p className="text-xl font-black text-[#4a148c] mt-2">
-              {currencyFormatter.format(campaign.maxRewardPerUserPerDay ?? 0)}
+              {campaign.maxRewardPerUserPerDay != null && campaign.maxRewardPerUserPerDay > 0
+                ? currencyFormatter.format(campaign.maxRewardPerUserPerDay)
+                : "ไม่จำกัด"}
             </p>
           </div>
         </div>
@@ -306,11 +292,6 @@ export default function CampaignDetailPage({ params }: Props) {
                 return;
               }
               setSaveMessage(null);
-              const tb = parseNonNegativeNumber(totalBudget);
-              if (tb == null) {
-                setSaveMessage("กรุณากรอกงบรวมเป็นตัวเลขที่ถูกต้อง");
-                return;
-              }
               const rps = rewardPerShare.trim() === "" ? 0 : parseNonNegativeNumber(rewardPerShare);
               const maxPerUser =
                 maxRewardPerUser.trim() === "" ? 0 : parseNonNegativeNumber(maxRewardPerUser);
@@ -341,7 +322,8 @@ export default function CampaignDetailPage({ params }: Props) {
                 form.set("sponsorId", sponsorId);
                 form.set("name", name.trim());
                 form.set("description", description.trim());
-                form.set("totalBudget", String(tb));
+                form.set("appFeedDescription", appFeedDescription.trim().slice(0, 800));
+                form.set("totalBudget", "0");
                 form.set("usedBudget", String(ub));
                 form.set("shareAltText", shareAltText.trim());
                 form.set("status", status);
@@ -382,7 +364,7 @@ export default function CampaignDetailPage({ params }: Props) {
               <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} required />
             </div>
             <div>
-              <label className={labelClass}>รายละเอียด</label>
+              <label className={labelClass}>คำอธิบายบนการ์ด Flex</label>
               <textarea
                 className={`${inputClass} min-h-[88px] resize-y`}
                 value={description}
@@ -390,25 +372,16 @@ export default function CampaignDetailPage({ params }: Props) {
                 rows={3}
               />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className={labelClass}>งบรวม (บาท)</label>
-                <input
-                  className={inputClass}
-                  value={totalBudget}
-                  onChange={(e) => setTotalBudget(e.target.value)}
-                  inputMode="decimal"
-                />
-              </div>
-              <div>
-                <label className={labelClass}>ใช้ไปแล้ว (บาท)</label>
-                <input
-                  className={`${inputClass} bg-gray-200 border-gray-300 text-gray-700 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-700`}
-                  value={String(campaign.usedBudget ?? 0)}
-                  disabled
-                  inputMode="decimal"
-                />
-              </div>
+            <div>
+              <label className={labelClass}>คำอธิบายในแอป (หน้าแรก / รายการแคมเปญ)</label>
+              <textarea
+                className={`${inputClass} min-h-[72px] resize-y`}
+                value={appFeedDescription}
+                onChange={(e) => setAppFeedDescription(e.target.value.slice(0, 800))}
+                maxLength={800}
+                rows={3}
+                placeholder="คนละส่วนกับคำอธิบายบนการ์ด — ว่างได้ (แอปจะ fallback ไปใช้คำอธิบายการ์ด)"
+              />
             </div>
             <div>
               <label className={labelClass}>โค้ด JSON Flex (LINE)</label>
@@ -431,7 +404,7 @@ export default function CampaignDetailPage({ params }: Props) {
               )}
             </div>
             <div>
-              <label className={labelClass}>รูปตัวอย่างแคมเปญ</label>
+              <label className={labelClass}>รูปการ์ด + รายการในแอป</label>
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/gif"
@@ -485,10 +458,7 @@ export default function CampaignDetailPage({ params }: Props) {
                 inputMode="decimal"
               />
               <p className="text-[11px] text-[#6a1b9a]/55 mt-1.5 leading-relaxed">
-                โควต้าแชร์สูงสุดคำนวณจากงบรวม ÷ ค่าตอบแทนต่อแชร์
-                {derivedMaxShares != null
-                  ? ` — ประมาณ ${derivedMaxShares.toLocaleString("th-TH")} ครั้ง`
-                  : " — กรอกงบและค่าตอบแทนมากกว่า 0 เพื่อดูจำนวนครั้ง"}
+                งบโฆษณาและโควต้าแชร์รวมอยู่ที่สปอนเซอร์ — แคมเปญไม่มีงบแยก
               </p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -533,6 +503,7 @@ export default function CampaignDetailPage({ params }: Props) {
                 <option value="active">active</option>
                 <option value="paused">paused</option>
                 <option value="completed">completed</option>
+                <option value="archived">archived</option>
               </select>
             </div>
             {tags.length > 0 ? (

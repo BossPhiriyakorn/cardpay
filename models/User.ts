@@ -73,7 +73,10 @@ const UserSchema = new Schema(
       default: null,
     },
     referredByCode: { type: String, default: "", trim: true, uppercase: true },
-    /** จ่ายโบนัสแนะนำเพื่อนครั้งแรกแล้วหรือยัง */
+    /**
+     * ผู้ถูกแนะนำมีบันทึกแชร์สำเร็จครั้งแรกแล้ว — รางวัลแนะนำจ่ายได้ครั้งเดียว
+     * (ครั้งแรกที่ rewardPerShare > 0 จะจ่ายให้ผู้แนะนำเท่ากับผู้แชร์; ถ้าครั้งแรกเป็น 0 บาทจะไม่จ่ายแต่สิทธิ์ครั้งเดียวถูกใช้แล้ว)
+     */
     referralRewardClaimedAt: { type: Date, default: null },
     referralRewardClaimedCampaignId: {
       type: Schema.Types.ObjectId,

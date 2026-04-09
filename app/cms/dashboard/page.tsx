@@ -118,7 +118,7 @@ export default function DashboardPage() {
             <button className="text-[10px] md:text-xs font-bold text-[#8e24aa] hover:underline">ดูทั้งหมด</button>
           </div>
           
-          <div className="space-y-4 md:space-y-6">
+          <div className="max-h-80 md:max-h-96 overflow-y-auto overscroll-y-contain space-y-4 md:space-y-6 pr-1 [scrollbar-gutter:stable]">
             {(activities.length > 0 ? activities : [{ id: "empty", action: error ?? 'ยังไม่มีกิจกรรมล่าสุด', createdAt: '-' }]).map((item) => (
               <div key={item.id} className="flex items-center gap-3 md:gap-4 p-3 md:p-4 rounded-2xl hover:bg-[#faf3fc] transition-colors border border-transparent hover:border-[#e1bee7] group">
                 <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[#f5ecf8] flex items-center justify-center text-[#6a1b9a]/50 group-hover:text-[#8e24aa] transition-colors shrink-0">
